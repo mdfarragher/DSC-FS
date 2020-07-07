@@ -13,3 +13,4 @@ Regression/TaxiFarePrediction/bin/
 Regression/TaxiFarePrediction/obj/
 MulticlassClassification/DigitRecognition/mnist_test.csv
 MulticlassClassification/DigitRecognition/mnist_train.csv
+Clustering/IrisFlower/bin/
