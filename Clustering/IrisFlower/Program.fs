@@ -9,13 +9,13 @@ type IrisData = {
     [<LoadColumn(1)>] SepalWidth : float32
     [<LoadColumn(2)>] PetalLength : float32
     [<LoadColumn(3)>] PetalWidth : float32
-    [<LoadColumn(4)>] Label : int
+    [<LoadColumn(4)>] Label : string
 }
 
 /// A type that holds a single model prediction.
 [<CLIMutable>]
 type IrisPrediction = {
-    PredictedLabel : float32
+    PredictedLabel : uint32
     Score : float32[]
 }
 
@@ -52,8 +52,8 @@ let main argv =
 
     // show results
     printfn "Nodel results"
-    printfn "   Average distance:   %f" metrics.AverageDistance
-    printfn "   Davies Bould index: %f" metrics.DaviesBouldinIndex
+    printfn "   Average distance:     %f" metrics.AverageDistance
+    printfn "   Davies Bouldin index: %f" metrics.DaviesBouldinIndex
 
     // set up a prediction engine
     let engine = context.Model.CreatePredictionEngine model
@@ -64,8 +64,11 @@ let main argv =
 
     // show predictions for the three flowers
     printfn "Predictions for the 3 test flowers:"
+    printfn "  Label\t\t\tPredicted\tScores"
     testFlowers |> Seq.iter(fun f -> 
             let p = engine.Predict f
-            printfn "  %i" f.PredictedLabel)
+            printf "  %-15s\t%i\t\t" f.Label p.PredictedLabel
+            p.Score |> Seq.iter(fun s -> printf "%f\t" s)
+            printfn "")
 
     0 // return value
