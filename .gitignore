@@ -1,0 +1,15 @@
+BinaryClassification/HeartDiseasePrediction/bin/
+BinaryClassification/HeartDiseasePrediction/obj/
+BinaryClassification/SpamDetection/bin/
+BinaryClassification/SpamDetection/obj/
+BinaryClassification/TitanicPrediction/bin/
+BinaryClassification/TitanicPrediction/obj/
+Clustering/IrisFlower/obj/
+MulticlassClassification/DigitRecognition/bin/
+MulticlassClassification/DigitRecognition/obj/
+Regression/BikeDemandPrediction/bin/
+Regression/BikeDemandPrediction/obj/
+Regression/TaxiFarePrediction/bin/
+Regression/TaxiFarePrediction/obj/
+MulticlassClassification/DigitRecognition/mnist_test.csv
+MulticlassClassification/DigitRecognition/mnist_train.csv
