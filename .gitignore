@@ -16,3 +16,5 @@ MulticlassClassification/DigitRecognition/mnist_train.csv
 Clustering/IrisFlower/bin/
 Recommendation/MovieRecommender/bin/
 Recommendation/MovieRecommender/obj/
+LoadingData/CaliforniaHousing/bin/
+LoadingData/CaliforniaHousing/obj/
