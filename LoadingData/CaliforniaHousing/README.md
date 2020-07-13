@@ -256,7 +256,7 @@ Note the **mutable** keyword again, which indicates that we're going to modify t
 
 We will use these types in the next code snippet.
 
-Now scroll down to the bottom of the **main** function and add the following code after pipeline step 1:
+Now scroll down to the bottom of the **main** function and add the following code just before the final line that retuns a zero return value:
 
 ```fsharp
 // step 2: bin the longitude
