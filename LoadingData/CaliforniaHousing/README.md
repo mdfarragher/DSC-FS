@@ -33,7 +33,7 @@ In these assignments you will not be using the code in Github. Instead, you'll b
 Now please open a console window. You are going to create a new subfolder for this assignment and set up a blank console application:
 
 ```bash
-$ dotnet new console -o LoadingData
+$ dotnet new console --language F# --output LoadingData
 $ cd LoadingData
 ```
 
@@ -43,166 +43,104 @@ Now install the following packages
 
 ```bash
 $ dotnet add package Microsoft.ML
-$ dotnet add package BetterConsoleTables
-$ dotnet add package plplot
+$ dotnet add package FSharp.Plotly
 ```
 
-**Microsoft.ML** is the Microsoft machine learning package. We will use to build all our applications in this course. The **BetterConsoleTables** package is a handy library for writing nicely formatted tables to the console. ANd **PLplot** is an advanced scientific plotting library.
+**Microsoft.ML** is the Microsoft machine learning package. We will use to build all our applications in this course. And **FSharp.Plotly** is an advanced scientific plotting library.
 
-Now you are ready to add classes. You’ll need one class to hold all the information for a single housing block.
+Now you are ready to add types. You’ll need one type to hold all the information for a single housing block.
 
-Edit the Program.cs file with Visual Studio Code and add the following code:
+Edit the Program.fs file with Visual Studio Code and add the following code:
 
-```csharp
-using System;
-using System.IO;
-using System.Linq;
-using Microsoft.ML;
-using Microsoft.ML.Data;
-using BetterConsoleTables;
-using PLplot;
+```fsharp
+open System
+open Microsoft.ML
+open Microsoft.ML.Data
+open FSharp.Plotly
 
-namespace LoadingData
-{
-    /// <summary>
-    /// The HouseBlockData class holds one single housing block data record.
-    /// </summary>
-    public class HouseBlockData
-    {
-        [LoadColumn(0)] public float Longitude { get; set; }
-        [LoadColumn(1)] public float Latitude { get; set; }
-        [LoadColumn(2)] public float HousingMedianAge { get; set; }
-        [LoadColumn(3)] public float TotalRooms { get; set; }
-        [LoadColumn(4)] public float TotalBedrooms { get; set; }
-        [LoadColumn(5)] public float Population { get; set; }
-        [LoadColumn(6)] public float Households { get; set; }
-        [LoadColumn(7)] public float MedianIncome { get; set; }
-        [LoadColumn(8)] public float MedianHouseValue { get; set; }
-    }
+/// The HouseBlockData class holds one single housing block data record.
+[<CLIMutable>]
+type HouseBlockData = {
+    [<LoadColumn(0)>] Longitude : float32
+    [<LoadColumn(1)>] Latitude : float32
+    [<LoadColumn(2)>] HousingMedianAge : float32
+    [<LoadColumn(3)>] TotalRooms : float32
+    [<LoadColumn(4)>] TotalBedrooms : float32
+    [<LoadColumn(5)>] Population : float32
+    [<LoadColumn(6)>] Households : float32
+    [<LoadColumn(7)>] MedianIncome : float32
+    [<LoadColumn(8)>] MedianHouseValue : float32
+}
+```
+
+The **HouseBlockData** class holds all the data for one single housing block. Note that we're loading each column as a 32-bit floating point number, and that every field is tagged with a **LoadColumn** attribute that will tell the CSV data loading code which column to import data from.
+
+We also need the **CLIMutable** attribute to tell F# that we want a 'C#-style' class implementation with a default constructor and setters functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
+
+Next you need to load the data in memory:
+
+```fsharp
+/// file paths to data files (assumes os = windows!)
+let dataPath = sprintf "%s\\california_housing.csv" Environment.CurrentDirectory
+
+[<EntryPoint>]
+let main argv =
+
+    // create the machine learning context
+    let context = new MLContext()
+
+    // load the dataset
+    let data = context.Data.LoadFromTextFile<HouseBlockData>(dataPath, hasHeader = true, separatorChar = ',')
 
     // the rest of the code goes here...
-}
+
+    0 // return value
 ```
 
-The **HouseBlockData** class holds all the data for one single housing block. Note how each field is tagged with a **LoadColumn** attribute that will tell the CSV data loading code which column to import data from.
+This code sets up the **main** function which is the main entry point of the application. The code calls the **LoadFromTextFile** method to load the CSV data in memory. Note the **HouseBlockData** type argument that tells the method which class to use to load the data.
 
-Now you need to load the data in memory:
-
-```csharp
-/// <summary>
-/// The main program class.
-/// </summary>
-class Program
-{
-    // filename for data set
-    private static string dataPath = Path.Combine(Environment.CurrentDirectory, "california_housing.csv");
-    
-    /// <summary>
-    /// The main program entry point.
-    /// </summary>
-    /// <param name="args">The command line arguments</param>
-    static void Main(string[] args)
-    {
-        // create the machine learning context
-        var context = new MLContext();
-
-        // load the dataset
-        Console.WriteLine("Loading data...");
-        var data = context.Data.LoadFromTextFile<HouseBlockData>(
-            path: dataPath, 
-            hasHeader:true, 
-            separatorChar: ',');
-
-        // the rest of the code goes here...
-    }
-}
-```
-
-This code calls the **LoadFromTextFile** method to load the CSV data in memory. Note the **HouseBlockData** type argument that tells the method which class to use to load the data.
+Also note that **dataPath** uses a Windows path separator to access the data file. Change this accordingly if you're using OS/X or Linux. 
 
 So now we have the data in memory. Let's plot the median house value as a function of median income and see what happens. 
 
 Add the following code:
 
-```csharp
+```fsharp
 // get an array of housing data
-var houses = context.Data.CreateEnumerable<HouseBlockData>(data, reuseRowObject: false).ToArray();
+let houses = context.Data.CreateEnumerable<HouseBlockData>(data, reuseRowObject = false)
 
-// plot median house value by longitude
-var pl = new PLStream();
-pl.sdev("pngcairo");                // png rendering
-pl.sfnam("data.png");               // output filename
-pl.spal0("cmap0_alternate.pal");    // alternate color palette
-pl.init();
-pl.env(
-    0, 10,                          // x-axis range
-    0, 600000,                      // y-axis range
-    AxesScale.Independent,          // scale x and y independently
-    AxisBox.BoxTicksLabelsAxes);    // draw box, ticks, and num ticks
-pl.lab(
-    "Median Income",                // x-axis label
-    "Median House Value",           // y-axis label
-    "House value by longitude");    // plot title
-pl.sym(
-    houses.Select(h => (double)h.MedianIncome).ToArray(),
-    houses.Select(h => (double)h.MedianHouseValue).ToArray(),
-    (char)218
-);
-pl.eop();
+// plot median house value by median income
+Chart.Point(houses |> Seq.map(fun h -> (h.MedianIncome, h.MedianHouseValue))) 
+    |> Chart.withX_AxisStyle "Median income"
+    |> Chart.withY_AxisStyle "Median house value"
+    |> Chart.Show
 
 // the rest of the code goes here
 ```
 
-The housing data is  stored in memory as a data view, but we want to work with the **HouseBlockData** records directly. So we call **CreateEnumerable** to convert the data view to an enumeration of **HouseDataBlock** instances.
+The housing data is stored in memory as a data view, but we want to work with the **HouseBlockData** records directly. So we call **CreateEnumerable** to convert the data view to an enumeration of **HouseDataBlock** instances.
 
-The **pl.sdev** method then sets the plot device and the **sfnam** method sets the output filename. We call **spal0** to set an alternate color palette, **init** to initialize the plot, **env** to set up the axes, and **lab** to set up the labels.
+The **Chart.Point** method then sets up a scatterplot. We pipe the **houses** enumeration into the **Seq.map** function and project a tuple for every housing block. The tuples contain the median income and median house value for every block, and **Chart.Point** will use these as X- and Y coordinates.
 
-The **sym** method draws a symbol for every houseing block in the dataset. The code uses two LINQ queries to set up arrays of median income and median house values.
-
-The final **eop** method closes the plot and saves it to disk.
+The **Chart.withX_AxisStyle** and **Chart.withY_AxisStyle** functions set the chart axis titles, and **Chart.Show** renders the chart on screen. Your app will open a web browser and display the chart there. 
 
 This is a good moment to save your work ;) 
 
-We're ready to run the app. But first we need to make sure that the **Plplot** library is available. 
-
-If you're using a Linux system, please type the following:
-
-```bash
-$ sudo apt-get install libplplot15
-$ sudo apt-get install plplot-driver-cairo
-```
-
-This will install Plplot on your system with an output driver for rendering PNG images.
-
-If you're on Windows, all the Plplot installation files are already present in the Nuget package. But we have to do a housekeeping task. There's an unfortunate bug in the Plplot library that makes it look in the wrong folder for font and color palette files.  We need to copy these files to a different location to get the library to work. 
-
-Open a Powershell terminal and make sure you're in the project folder. Then type the following: 
+We're now ready to run the app. Open a Powershell terminal and make sure you're in the project folder. Then type the following: 
 
 ```bash
 $ dotnet build
 ```
 
-This will build the project and populate the bin folder. The Plplot library files are now present in the bin folder, but the font and color palette files have been placed in the wrong folder. We're going to fix that now. 
+This will build the project and populate the bin folder. 
 
-Please type the following:
-
-```bash
-$ cd .\bin\Debug\netcoreapp3.0\
-$ copy .\runtimes\win-x64\native\plplot . -recurse
-$ cd ..\..\..
-```
-
-This copies the subfolder with all the font and color files into the folder of the executing assembly where the Plplot library can find it. 
-
-That's it, you're now ready to run the app on the console in either Linux or Windows. 
-
-Type the following:
+Then type the following:
 
 ```bash
 $ dotnet run
 ```
 
-Your app will run and write the plot to a new image file called **data.png**. It should look like this:
+Your app will run and open the chart in a new browser window. It should look like this:
 
 ![Median house value by median income](./assets/plot.png)
 
@@ -214,13 +152,9 @@ This is what **clipping** looks like. The creator of this dataset has clipped al
 
 Let's start by using **data scrubbing** to get rid of these clipped records. Add the following code:
 
-```csharp
-// keep only records with a median house value <= 500,000
-data = context.Data.FilterRowsByColumn(
-    data,
-    "MedianHouseValue",
-    upperBound: 500_000
-);
+```fsharp
+// keep only records with a median house value < 500,000
+let data = context.Data.FilterRowsByColumn(data, "MedianHouseValue", upperBound = 499999.0)
 
 // the rest of the code goes here...
 ```
@@ -237,27 +171,28 @@ Remember when we talked about training data science models that we discussed hav
 
 So let's fix that now by using **data scaling**. We're going to divide the median house value by 1,000 to bring it down to a range more in line with the other data columns. 
 
-Start by adding the following class:
+Start by adding the following type:
 
-```csharp
-/// <summary>
+```fsharp
 /// The ToMedianHouseValue class is used in a column data conversion.
-/// </summary>
-public class ToMedianHouseValue
-{
-    public float NormalizedMedianHouseValue { get; set; }
+[<CLIMutable>]
+type ToMedianHouseValue = {
+    mutable NormalizedMedianHouseValue : float32
 }
 ```
 
-And then add the following code at the bottom of your **Main** method:
+And then add the following code at the bottom of your **main** function:
 
-```csharp
+```fsharp
 // build a data loading pipeline
-// step 1: divide the median house value by 1000
-var pipeline = context.Transforms.CustomMapping<HouseBlockData, ToMedianHouseValue>(
-    (input, output) => { output.NormalizedMedianHouseValue = input.MedianHouseValue / 1000; },
-    contractName: "MedianHouseValue"
-);
+let pipeline = 
+    EstimatorChain()
+
+        // step 1: divide the median house value by 1000
+        .Append(
+            context.Transforms.CustomMapping(
+                Action<HouseBlockData, ToMedianHouseValue>(fun input output -> output.NormalizedMedianHouseValue <- input.MedianHouseValue / 1000.0f),
+                "MedianHouseValue"))
 
 // the rest of the code goes here...
 ```
@@ -266,55 +201,33 @@ Machine learning models in ML.NET are built with pipelines which are sequences o
 
 This pipeline has only one component:
 
-* **CustomMapping** which takes the median house values, divides them by 1,000 and stores them in a new column called **NormalizedMedianHouseValue**. Note that we need the new **ToMedianHouseValue** class to access this new column in code. 
+* **CustomMapping** which takes the median house values, divides them by 1,000 and stores them in a new column called **NormalizedMedianHouseValue**. Note that we need the new **ToMedianHouseValue** type to access this new column in code.
 
-Let's see if the conversion worked. Add the following helper method to the top of the **Program** class:
+Also note the **mutable** keyword in the type definition for **ToMedianHouseValue**. By default F# types are immutable and the compiler will prevent us from assigning to any property after the type has been instantiated. The **mutable** keyword tells the compiler to create a mutable type instead and allow property assignments after construction. 
 
-```csharp
-/// <summary>
-/// Helper method to write the machine learning pipeline to the console.
-/// </summary>
-/// <param name="preview">The data preview to write.</param>
-public static void WritePreview(DataDebuggerPreview preview)
-{
-    // set up a console table
-    var table = new Table(
-        TableConfiguration.Unicode(),
-        (from c in preview.ColumnView 
-            select new ColumnHeader(c.Column.Name)).ToArray());
+If we had left out the keyword, the **output.NormalizedMedianHouseValue = ...** line would fail.
 
-    // fill the table with results
-    foreach (var row in preview.RowView)
-    {
-        table.AddRow((from c in row.Values 
-                        select c.Value is VBuffer<float> ? "<vector>" : c.Value
-                    ).ToArray());
-    }
+Now let's see if the conversion worked. Add the following code at the bottom of the **main** function:
 
-    // write the table
-    Console.WriteLine(table.ToString());
-}
-```
-
-The **WritePreview** method uses the **Table** class from the **BetterConsoleTables** package to write the contents of the **preview** argument to the console. 
-
-So let's generate this preview now. Add the following code at the bottom of the **Main** method:
-
-```csharp
+```fsharp
 // get a 10-record preview of the transformed data
-var model = pipeline.Fit(data);
-var transformedData = model.Transform(data);
-var preview = transformedData.Preview(maxRows: 10);
+let model = data |> pipeline.Fit
+let preview = (data |> model.Transform).Preview(maxRows = 10)
 
 // show the preview
-WritePreview(preview);
+preview.ColumnView |> Seq.iter(fun c ->
+    printf "%-30s|" c.Column.Name
+    preview.RowView |> Seq.iter(fun r -> printf "%10O|" r.Values.[c.Column.Index].Value)
+    printfn "")
 
 // the rest of the code goes here...
 ```
 
-The **Fit** method sets up the pipeline, creates a data science model and stores it in the **model** variable. The **Transform** method then runs the dataset through the pipeline and stores the result in **transformedData**. And finally the **Preview** method extracts a 10-row preview from the transformed data.
+The **pipeline.Fit** method sets up the pipeline, creates a data science model and stores it in the **model** variable. The **model.Transform** method then runs the dataset through the pipeline and creates predictions for every housing block. And finally the **Preview** method extracts a 10-row preview from the collection of predictions.
 
-We then call the new **WritePreview** method to write these 10 records to the console. 
+Next, we use **Seq.iter** to enumerate every column in the preview. We print the column name and then use a second **Seq.iter** to show all the preview values in this column.
+
+This will print a transposed view of the preview data with the columns stacked vertically and the rows stacked horizontally. Flipping the preview makes it easier to read, despite the very long column names. 
 
 Now run your code. 
 
@@ -322,58 +235,51 @@ Find the MedianHouseValue and NormalizedMedianHouseValue columns in the output. 
 
 Now let's fix the latitude and longitude. We're reading them in directly, but remember that we discussed how **Geo data should always be binned, one-hot encoded, and crossed?** 
 
-Let's do that now. Add the following classes at the top of the namespace:
+Let's do that now. Add the following types at the top of the file:
 
-```csharp
-/// <summary>
-/// The FromLocation class is used in a column data conversion.
-/// </summary>
-public class FromLocation
-{
-    public float[] EncodedLongitude { get; set; }
-    public float[] EncodedLatitude { get; set; }
-}
-
-/// <summary>
+```fsharp
 /// The ToLocation class is used in a column data conversion.
-/// </summary>
-public class ToLocation
-{
-    public float[] Location { get; set; }
+[<CLIMutable>]
+type FromLocation = {
+    EncodedLongitude : float32[]
+    EncodedLatitude : float32[]
 }
 
+/// The ToLocation class is used in a column data conversion.
+[<CLIMutable>]
+type ToLocation = {
+    mutable Location : float32[]
+}
 ```
 
-We're going to use these classes in the next code snippet.
+Note the **mutable** keyword again, which indicates that we're going to modify the **Location** property of the **ToLocation** type after construction. 
 
-Now scroll down to the bottom of the **Main** method and add the following code after step 1:
+We will use these types in the next code snippet.
 
-```csharp
+Now scroll down to the bottom of the **main** function and add the following code after pipeline step 1:
+
+```fsharp
 // step 2: bin the longitude
-var pipeline2 = pipeline.Append(context.Transforms.NormalizeBinning(
-        inputColumnName: "Longitude",
-        outputColumnName: "BinnedLongitude",
-        maximumBinCount: 10
-    ))
+let pipeline2 = 
+    pipeline
+        .Append(context.Transforms.NormalizeBinning("BinnedLongitude", "Longitude", maximumBinCount = 10))
 
-    // step 3: bin the latitude
-    .Append(context.Transforms.NormalizeBinning(
-        inputColumnName: "Latitude",
-        outputColumnName: "BinnedLatitude",
-        maximumBinCount: 10
-    ))
+        // step 3: bin the latitude
+        .Append(context.Transforms.NormalizeBinning("BinnedLatitude", "Latitude", maximumBinCount = 10))
 
-    // step 4: one-hot encode the longitude
-    .Append(context.Transforms.Categorical.OneHotEncoding(
-        inputColumnName: "BinnedLongitude",
-        outputColumnName: "EncodedLongitude"
-    ))
+        // step 4: one-hot encode the longitude
+        .Append(context.Transforms.Categorical.OneHotEncoding("EncodedLongitude", "BinnedLongitude"))
 
-    // step 5: one-hot encode the latitude
-    .Append(context.Transforms.Categorical.OneHotEncoding(
-        inputColumnName: "BinnedLatitude",
-        outputColumnName: "EncodedLatitude"
-    ));
+        // step 5: one-hot encode the latitude
+        .Append(context.Transforms.Categorical.OneHotEncoding("EncodedLatitude", "BinnedLatitude"))
+
+        .Append(
+            context.Transforms.CustomMapping(
+                Action<FromLocation, ToLocation>(fun input output -> 
+                    output.Location <- [|   for x in input.EncodedLongitude do
+                                                for y in input.EncodedLatitude do
+                                                    x * y |] ),
+                "Location"))
 
 // the rest of the code goes here...
 ```
@@ -384,103 +290,45 @@ Note how we're extending the data loading pipeline with extra components. The ne
 
 * Two **OneHotEncoding** components that one-hot encode the longitude and latitude bins
 
-So now we're almost done. All we need to do next is cross the longitude and latitude one-hot vectors. We'll also add an extra component to remove all the columns from the dataset we no longer need: 
+* One **CustomMapping** component that multiples (crosses) the longitude and latitude vectors to create a feature cross: a 100-element vector with all zeroes except for a single '1' value.
 
-```csharp
-// step 6: cross the two one-hot encoded columns
-var pipeline3 = pipeline2.Append(context.Transforms.CustomMapping<FromLocation, ToLocation>(
-    (input, output) => { 
-        output.Location = new float[input.EncodedLongitude.Length * input.EncodedLatitude.Length];
-        var index = 0;
-        for (var i = 0; i < input.EncodedLongitude.Length; i++)
-            for (var j = 0; j < input.EncodedLatitude.Length; j++)
-                output.Location[index++] = input.EncodedLongitude[i] * input.EncodedLatitude[j];
-    },
-    contractName: "Location"
-))
+Note how the custom mapping uses two nested for-loops inside the **[| ... |]** array brackets. This sets up an inline enumerator that multiples the two longitude and latitude vectors and produces a 1-dimensional array with 100 elements. 
 
-// step 7: remove all the columns we don't need anymore
-.Append(context.Transforms.DropColumns(
-    "MedianHouseValue",
-    "Longitude",
-    "Latitude",
-    "BinnedLongitude",
-    "BinnedLatitude",
-    "EncodedLongitude",
-    "EncodedLatitude"
-));
+Let's see if this worked. Add the following code to the bottom of the **main** function:
+
+```fsharp
+// get a 10-record preview of the transformed data
+let model = data |> pipeline2.Fit
+let preview = (data |> model.Transform).Preview(maxRows = 10)
+
+// show the preview
+preview.ColumnView |> Seq.iter(fun c ->
+    printf "%-30s|" c.Column.Name
+    preview.RowView |> Seq.iter(fun r -> printf "%10O|" r.Values.[c.Column.Index].Value)
+    printfn "")
 
 // the rest of the code goes here...
 ```
 
-This code extendes the pipeline with two additional components:
-
-* A **CustomMapping** component that crosses the one-hot encoded vectors of the longitude and latitude. ML.NET has no built-in support for crossing one-hot encoded vectors, so we do it manually with a nested for loop and store the result in a new column called **Location**.
-
-* A final **DropColumns** component to delete all columns from the data view that we don't need anymore. 
-
-Let's see if this worked. 
-
-Remember that code you added to preview the pipeline and write the first 10 records to the console? Look up that code now (including the part that calls **Fit**, **Transform** and **Preview**) and move it to the bottom of your **Main** method. 
-
-Don't forget to edit the code so that it previews **pipeline3**.  
-
-It should look like this:
-
-```csharp
-// get a 10-record preview of the transformed data
-var model = pipeline3.Fit(data);
-var transformedData = model.Transform(data);
-var preview = transformedData.Preview(maxRows: 10);
-
-// show the preview
-WritePreview(preview);
-```
+This is the same code you used previously to create predictions, get a preview, and display the preview on the console. But now you're using **pipeline2** instead.
 
 Now run your app. 
 
 What does the data look like now? Is the list of columns correct? Are all the dropped columns gone? And is the new **Location** column present?
 
-You should see the new **Location** column, but the **WritePreview** method can't display it's contents. It just prints '\<vector\>' instead. 
+You should see the new **Location** column, but the code can't display its contents properly. 
 
-So let's fix that. Add the following helper method at the top of the **Program** class:
+So let's fix that. Add the following code to display all the individual values in the **Location** vector:
 
-```csharp
-/// <summary>
-/// Helper method to write a single column preview to the console.
-/// </summary>
-/// <param name="preview">The data preview to write.</param>
-/// <param name="column">The name of the column to write.</param>
-public static void WritePreviewColumn(DataDebuggerPreview preview, string column)
-{
-    // set up a console table
-    var table = new Table(TableConfiguration.Unicode(), new ColumnHeader(column));
-
-    // fill the table with results
-    foreach (var row in preview.RowView)
-    {
-        foreach (var col in row.Values)
-        {
-            if (col.Key == column)
-            {   
-                var vector = (VBuffer<float>)col.Value;
-                table.AddRow(string.Concat(vector.DenseValues()));
-            }
-        }
-    }
-
-    // write the table
-    Console.WriteLine(table.ToString());
-}
+```fsharp
+// show the dense vector
+preview.RowView |> Seq.iter(fun r ->
+    let vector = r.Values.[r.Values.Length-1].Value :?> VBuffer<float32>
+    vector.DenseValues() |> Seq.iter(fun v -> printf "%i" (int v))
+    printfn "")
 ```
 
-This is a modified helper method that can display a single one-hot encoded column as a string of zeroes and ones.
-
-Now go back to the end of your **Main** method and replace the final line with this:
-
-```csharp
-WritePreviewColumn(preview, "Location");
-```
+We use **Seq.iter** to enumerate every row in the preview. And note the **:?>** operator which casts the value to a **VBuffer** of floats. With this casted value we can access the **DenseValues** property which is a float array of all the elements in the vector. So we pipe that property into a second **Seq.iter** to print the values.
 
 Now run your app. What do you see? Did it work? Are there 100 digits in the **Location** column? And is there only a single '1' digit in each row? 
 
