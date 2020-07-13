@@ -315,7 +315,9 @@ This is the same code you used previously to create predictions, get a preview, 
 
 Now run your app. 
 
-What does the data look like now? Is the list of columns correct? Are all the dropped columns gone? And is the new **Location** column present?
+What does the data look like now? Can you spot the new columns with the binned and one-hot encoded longitude and latitude values?
+
+And is the new **Location** column present?
 
 You should see the new **Location** column, but the code can't display its contents properly. 
 
