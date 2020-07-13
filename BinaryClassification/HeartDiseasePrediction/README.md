@@ -34,7 +34,7 @@ You are going to build a binary classification machine learning model that reads
 Let’s get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o Heart
+$ dotnet new console --language F# --output Heart
 $ cd Heart
 ```
 
@@ -45,156 +45,123 @@ $ dotnet add package Microsoft.ML
 $ dotnet add package Microsoft.ML.FastTree
 ```
 
-Now you are ready to add some classes. You’ll need one to hold patient info, and one to hold your model predictions.
+Now you are ready to add some types. You’ll need one to hold patient info, and one to hold your model predictions.
 
-Modify the Program.cs file like this:
+Replace the contents of the Program.fs file with this:
 
-```csharp
-using System;
-using System.IO;
-using Microsoft.ML;
-using Microsoft.ML.Data;
+```fsharp
+open System
+open System.IO
+open Microsoft.ML
+open Microsoft.ML.Data
 
-namespace Heart
-{
-    /// <summary>
-    /// The HeartData record holds one single heart data record.
-    /// </summary>
-    public class HeartData 
-    {
-        [LoadColumn(0)] public float Age { get; set; }
-        [LoadColumn(1)] public float Sex { get; set; }
-        [LoadColumn(2)] public float Cp { get; set; }
-        [LoadColumn(3)] public float TrestBps { get; set; }
-        [LoadColumn(4)] public float Chol { get; set; }
-        [LoadColumn(5)] public float Fbs { get; set; }
-        [LoadColumn(6)] public float RestEcg { get; set; }
-        [LoadColumn(7)] public float Thalac { get; set; }
-        [LoadColumn(8)] public float Exang { get; set; }
-        [LoadColumn(9)] public float OldPeak { get; set; }
-        [LoadColumn(10)] public float Slope { get; set; }
-        [LoadColumn(11)] public float Ca { get; set; }
-        [LoadColumn(12)] public float Thal { get; set; }
-        [LoadColumn(13)] public int RawLabel { get; set; }
-    }
-
-    /// <summary>
-    /// The HeartPrediction class contains a single heart data prediction.
-    /// </summary>
-    public class HeartPrediction
-    {
-        [ColumnName("PredictedLabel")] public bool Prediction;
-        public float Probability;
-        public float Score;
-    }
-
-    // the rest of the code goes here....
-}
-```
-The **HeartData** class holds one single patient record. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
-
-There's also a **HeartPrediction** class which will hold a single heart disease prediction. There's a boolean **Prediction**, a **Probability** value, and the **Score** the model will assign to the prediction.
-
-Now look at the final column in the data file. Our label is an integer value between 0-4, with 0 meaning 'no risk' and 1-4 meaning 'elevated risk'. 
-
-But you're building a Binary Classifier which means your model needs to be trained on boolean labels.
-
-So you'll have to somehow convert the 'raw' numeric label (stored in the **RawLabel** field) to a boolean value. 
-
-To set that up, you'll need two helper classes:
-
-```csharp
-/// <summary>
-/// The FromLabel class is a helper class for a column transformation.
-/// </summary>
-public class FromLabel
-{
-    public int RawLabel;
+/// The HeartData record holds one single heart data record.
+[<CLIMutable>]
+type HeartData = {
+    [<LoadColumn(0)>] Age : float32
+    [<LoadColumn(1)>] Sex : float32
+    [<LoadColumn(2)>] Cp : float32
+    [<LoadColumn(3)>] TrestBps : float32
+    [<LoadColumn(4)>] Chol : float32
+    [<LoadColumn(5)>] Fbs : float32
+    [<LoadColumn(6)>] RestEcg : float32
+    [<LoadColumn(7)>] Thalac : float32
+    [<LoadColumn(8)>] Exang : float32
+    [<LoadColumn(9)>] OldPeak : float32
+    [<LoadColumn(10)>] Slope : float32
+    [<LoadColumn(11)>] Ca : float32
+    [<LoadColumn(12)>] Thal : float32
+    [<LoadColumn(13)>] Diagnosis : float32
 }
 
-/// <summary>
-/// The ToLabel class is a helper class for a column transformation.
-/// </summary>
-public class ToLabel
-{
-    public bool Label;
+/// The HeartPrediction class contains a single heart data prediction.
+[<CLIMutable>]
+type HeartPrediction = {
+    [<ColumnName("PredictedLabel")>] Prediction : bool
+    Probability : float32
+    Score : float32
 }
 
 // the rest of the code goes here....
 ```
 
-Note the **FromLabel** class that contains the 'raw' unprocessed numeric label value, and the **ToLabel** class that contains the final boolean label value. 
+The **HeartData** class holds one single patient record. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
+
+There's also a **HeartPrediction** class which will hold a single heart disease prediction. There's a boolean **Prediction**, a **Probability** value, and the **Score** the model will assign to the prediction.
+
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
+
+Now look at the final **Diagnosis** column in the data file. Our label is an integer value between 0-4, with 0 meaning 'no risk' and 1-4 meaning 'elevated risk'. 
+
+But you're building a Binary Classifier which means your model needs to be trained on boolean labels.
+
+So you'll have to somehow convert the 'raw' numeric label (stored in the **Diagnosis** field) to a boolean value. 
+
+To set that up, you'll need a helper type:
+
+```fsharp
+/// The ToLabel class is a helper class for a column transformation.
+[<CLIMutable>]
+type ToLabel = {
+    mutable Label : bool
+}
+
+// the rest of the code goes here....
+```
+
+The **ToLabel** type contains the label converted to a boolean value. We'll set up that conversion in a minute.
+
+Also note the **mutable** keyword. By default F# types are immutable and the compiler will prevent us from assigning to any property after the type has been instantiated. The **mutable** keyword tells the compiler to create a mutable type instead and allow property assignments after construction. 
 
 Now you're going to load the training data in memory:
 
-```csharp
-/// <summary>
-/// The application class.
-/// </summary>
-public class Program
-{
-    // filenames for training and test data
-    private static string dataPath = Path.Combine(Environment.CurrentDirectory, "processed.cleveland.data.csv");
+```fsharp
+/// file paths to data files (assumes os = windows!)
+let dataPath = sprintf "%s\\processed.cleveland.data.csv" Environment.CurrentDirectory
 
-    /// <summary>
-    /// The main applicaton entry point.
-    /// </summary>
-    /// <param name="args">The command line arguments.</param>
-    public static void Main(string[] args)
-    {
-        // set up a machine learning context
-        var context = new MLContext();
+/// The main application entry point.
+[<EntryPoint>]
+let main argv =
 
-        // load data
-        Console.WriteLine("Loading data...");
-        var data = context.Data.LoadFromTextFile<HeartData>(dataPath, hasHeader: false, separatorChar: ',');
+    // set up a machine learning context
+    let context = new MLContext()
 
-        // split the data into a training and test partition
-        var partitions = context.Data.TrainTestSplit(data, testFraction: 0.2);
+    // load training and test data
+    let data = context.Data.LoadFromTextFile<HeartData>(dataPath, hasHeader = false, separatorChar = ',')
 
-        // the rest of the code goes here....
-    }
-}
+    // split the data into a training and test partition
+    let partitions = context.Data.TrainTestSplit(data, testFraction = 0.2)
+
+    // the rest of the code goes here....
+
+    0 // return value
 ```
-This code uses the method **LoadFromTextFile** to load the CSV data directly into memory. The class field annotations tell the method how to store the loaded data in the **HeartData** class.
 
-The **TrainTestSplit** method then splits the data into a training partition with 80% of the data and a test partition with 20% of the data.
+This code uses the method **LoadFromTextFile** to load the CSV data directly into memory. The field annotations we set up earlier tell the function how to store the loaded data in the **HeartData** class.
+
+The **TrainTestSplit** function then splits the data into a training partition with 80% of the data and a test partition with 20% of the data.
 
 Now you’re ready to start building the machine learning model:
 
-```csharp
+```fsharp
 // set up a training pipeline
-// step 1: convert the label value to a boolean
-var pipeline = context.Transforms.CustomMapping<FromLabel, ToLabel>(
-        (input, output) => { output.Label = input.RawLabel > 0; },
-        "LabelMapping"
-    )
+let pipeline = 
+    EstimatorChain()
 
-    // step 2: concatenate all feature columns
-    .Append(context.Transforms.Concatenate(
-    "Features", 
-    "Age", 
-    "Sex", 
-    "Cp", 
-    "TrestBps",
-    "Chol", 
-    "Fbs", 
-    "RestEcg", 
-    "Thalac", 
-    "Exang", 
-    "OldPeak", 
-    "Slope", 
-    "Ca", 
-    "Thal"))
+        // step 1: convert the label value to a boolean
+        .Append(
+            context.Transforms.CustomMapping(
+                Action<HeartData, ToLabel>(fun input output -> output.Label <- input.Diagnosis > 0.0f),
+                "LabelMapping"))
 
-    // step 3: set up a fast tree learner
-    .Append(context.BinaryClassification.Trainers.FastTree(
-        labelColumnName: "Label", 
-        featureColumnName: "Features"));
+        // step 2: concatenate all feature columns
+        .Append(context.Transforms.Concatenate("Features", "Age", "Sex", "Cp", "TrestBps", "Chol", "Fbs", "RestEcg", "Thalac", "Exang", "OldPeak", "Slope", "Ca", "Thal"))
+
+        // step 3: set up a fast tree learner
+        .Append(context.BinaryClassification.Trainers.FastTree())
 
 // train the model
-Console.WriteLine("Training model...");
-var model = pipeline.Fit(partitions.TrainSet);
+let model = partitions.TrainSet |> pipeline.Fit
 
 // the rest of the code goes here....
 ```
@@ -208,38 +175,31 @@ This pipeline has the following components:
 
 The **FastTreeBinaryClassificationTrainer** is a very nice training algorithm that uses gradient boosting, a machine learning technique for classification problems.
 
-With the pipeline fully assembled, you can train the model with a call to **Fit**.
+With the pipeline fully assembled, we can train the model by piping the **TrainSet** into the **Fit** function.
 
 You now have a fully- trained model. So now it's time to take the test partition, predict the diagnosis for each patient, and calculate the accuracy metrics of the model:
 
-```csharp
-// make predictions for the test data set
-Console.WriteLine("Evaluating model...");
-var predictions = model.Transform(partitions.TestSet);
-
-// compare the predictions with the ground truth
-var metrics = context.BinaryClassification.Evaluate(
-    data: predictions, 
-    labelColumnName: "Label", 
-    scoreColumnName: "Score");
+```fsharp
+// make predictions and compare with the ground truth
+let metrics = partitions.TestSet |> model.Transform |> context.BinaryClassification.Evaluate
 
 // report the results
-Console.WriteLine($"  Accuracy:          {metrics.Accuracy}");
-Console.WriteLine($"  Auc:               {metrics.AreaUnderRocCurve}");
-Console.WriteLine($"  Auprc:             {metrics.AreaUnderPrecisionRecallCurve}");
-Console.WriteLine($"  F1Score:           {metrics.F1Score}");
-Console.WriteLine($"  LogLoss:           {metrics.LogLoss}");
-Console.WriteLine($"  LogLossReduction:  {metrics.LogLossReduction}");
-Console.WriteLine($"  PositivePrecision: {metrics.PositivePrecision}");
-Console.WriteLine($"  PositiveRecall:    {metrics.PositiveRecall}");
-Console.WriteLine($"  NegativePrecision: {metrics.NegativePrecision}");
-Console.WriteLine($"  NegativeRecall:    {metrics.NegativeRecall}");
-Console.WriteLine();
+printfn "Model metrics:"
+printfn "  Accuracy:          %f" metrics.Accuracy
+printfn "  Auc:               %f" metrics.AreaUnderRocCurve
+printfn "  Auprc:             %f" metrics.AreaUnderPrecisionRecallCurve
+printfn "  F1Score:           %f" metrics.F1Score
+printfn "  LogLoss:           %f" metrics.LogLoss
+printfn "  LogLossReduction:  %f" metrics.LogLossReduction
+printfn "  PositivePrecision: %f" metrics.PositivePrecision
+printfn "  PositiveRecall:    %f" metrics.PositiveRecall
+printfn "  NegativePrecision: %f" metrics.NegativePrecision
+printfn "  NegativeRecall:    %f" metrics.NegativeRecall
 
 // the rest of the code goes here....
 ```
 
-This code calls **Transform** to set up a diagnosis for every patient in the set, and **Evaluate** to compare these predictions to the ground truth and automatically calculate all evaluation metrics:
+This code pipes the **TestSet** into **model.Transform** to set up a prediction for every patient in the set, and then pipes the predictions into **Evaluate** to compare these predictions to the ground truth and automatically calculate all evaluation metrics:
 
 * **Accuracy**: this is the number of correct predictions divided by the total number of predictions.
 * **AreaUnderRocCurve**: a metric that indicates how accurate the model is: 0 = the model is wrong all the time, 0.5 = the model produces random output, 1 = the model is correct all the time. An AUC of 0.8 or higher is considered good.
@@ -258,54 +218,43 @@ You also want to avoid false positives, but they are a lot better than a false n
 
 To wrap up, You’re going to create a new patient record and ask the model to make a prediction:
 
-```csharp
+```fsharp
 // set up a prediction engine
-Console.WriteLine("Making a prediction for a sample patient...");
-var predictionEngine = context.Model.CreatePredictionEngine<HeartData, HeartPrediction>(model);
+let predictionEngine = context.Model.CreatePredictionEngine model
 
 // create a sample patient
-var heartData = new HeartData()
-{ 
-    Age = 36.0f,
-    Sex = 1.0f,
-    Cp = 4.0f,
-    TrestBps = 145.0f,
-    Chol = 210.0f,
-    Fbs = 0.0f,
-    RestEcg = 2.0f,
-    Thalac = 148.0f,
-    Exang = 1.0f,
-    OldPeak = 1.9f,
-    Slope = 2.0f,
-    Ca = 1.0f,
-    Thal = 7.0f,
-};
+let sample = { 
+    Age = 36.0f
+    Sex = 1.0f
+    Cp = 4.0f
+    TrestBps = 145.0f
+    Chol = 210.0f
+    Fbs = 0.0f
+    RestEcg = 2.0f
+    Thalac = 148.0f
+    Exang = 1.0f
+    OldPeak = 1.9f
+    Slope = 2.0f
+    Ca = 1.0f
+    Thal = 7.0f
+    Diagnosis = 0.0f // unused
+}
 
 // make the prediction
-var prediction = predictionEngine.Predict(heartData);
+let prediction = sample |> predictionEngine.Predict
 
 // report the results
-Console.WriteLine($"  Age: {heartData.Age} ");
-Console.WriteLine($"  Sex: {heartData.Sex} ");
-Console.WriteLine($"  Cp: {heartData.Cp} ");
-Console.WriteLine($"  TrestBps: {heartData.TrestBps} ");
-Console.WriteLine($"  Chol: {heartData.Chol} ");
-Console.WriteLine($"  Fbs: {heartData.Fbs} ");
-Console.WriteLine($"  RestEcg: {heartData.RestEcg} ");
-Console.WriteLine($"  Thalac: {heartData.Thalac} ");
-Console.WriteLine($"  Exang: {heartData.Exang} ");
-Console.WriteLine($"  OldPeak: {heartData.OldPeak} ");
-Console.WriteLine($"  Slope: {heartData.Slope} ");
-Console.WriteLine($"  Ca: {heartData.Ca} ");
-Console.WriteLine($"  Thal: {heartData.Thal} ");
-Console.WriteLine();
-Console.WriteLine($"Prediction: {(prediction.Prediction ? "Elevated heart disease risk" : "Normal heart disease risk" )} ");
-Console.WriteLine($"Probability: {prediction.Probability:P2} ");
+printfn "\r"
+printfn "Single prediction:"
+printfn "  Prediction:  %s" (if prediction.Prediction then "Elevated heart disease risk" else "Normal heart disease risk")
+printfn "  Probability: %f" prediction.Probability
 ```
 
-This code uses the **CreatePredictionEngine** method to set up a prediction engine. The two type arguments are the input data class and the class to hold the prediction. And once the prediction engine is set up, you can simply call **Predict** to make a single prediction.
+This code uses the **CreatePredictionEngine** method to set up a prediction engine, and then creates a new patient record for a 36-year old male with asymptomatic chest pain and a bunch of other medical info. 
 
-The code creates a patient record for a 36-year old male with asymptomatic chest pain and a bunch of other medical info. What’s the model going to predict?
+We then pipe the patient record into the **Predict** function and display the diagnosis. 
+
+What’s the model going to predict?
 
 Time to find out. Go to your terminal and run your code:
 
