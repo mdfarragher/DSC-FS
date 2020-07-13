@@ -109,7 +109,7 @@ Here's a description of all 81 columns in the training file:
 Go to the console and set up a new console application:
 
 ```bash
-$ dotnet new console -o HousePricePrediction
+$ dotnet new console --language F# --output HousePricePrediction
 $ cd HousePricePrediction
 ```
 
