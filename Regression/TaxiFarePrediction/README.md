@@ -21,12 +21,12 @@ There are a lot of columns with interesting information in this data file, but y
 * Column 9: Payment type (credit card, cash, …)
 * Column 10: Fare amount
 
-You are going to build a machine learning model in C# that will use columns 0, 3, 4, 5, and 9 as input, and use them to predict the taxi fare for every trip. Then you’ll compare the predicted fares with the actual taxi fares in column 10, and evaluate the accuracy of your model.
+You are going to build a machine learning model in F# that will use columns 0, 3, 4, 5, and 9 as input, and use them to predict the taxi fare for every trip. Then you’ll compare the predicted fares with the actual taxi fares in column 10, and evaluate the accuracy of your model.
 
 Let's get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o PricePrediction
+$ dotnet new console --language F# --output PricePrediction
 $ cd PricePrediction
 ```
 
@@ -39,98 +39,38 @@ $ dotnet add package Microsoft.ML.FastTree
 
 Now you are ready to add some classes. You’ll need one to hold a taxi trip, and one to hold your model predictions.
 
-Edit the Program.cs file with Visual Studio Code and add the following code:
+Edit the Program.fs file with Visual Studio Code and replace its contents with the following code:
 
-```csharp
-using System;
-using System.IO;
-using Microsoft.ML;
-using Microsoft.ML.Data;
-
-namespace TaxiFarePrediction
-{
-    /// <summary>
-    /// The TaxiTrip class represents a single taxi trip.
-    /// </summary>
-    public class TaxiTrip
-    {
-        [LoadColumn(0)] public string VendorId;
-        [LoadColumn(5)] public string RateCode;
-        [LoadColumn(3)] public float PassengerCount;
-        [LoadColumn(4)] public float TripDistance;
-        [LoadColumn(9)] public string PaymentType;
-        [LoadColumn(10)] public float FareAmount;
-    }
-
-    /// <summary>
-    /// The TaxiTripFarePrediction class represents a single fare prediction.
-    /// </summary>
-    public class TaxiTripFarePrediction
-    {
-        [ColumnName("Score")]
-        public float FareAmount;
-    }
-
-    // the rest of the code goes here...
+```fsharp
+/// The TaxiTrip class represents a single taxi trip.
+[<CLIMutable>]
+type TaxiTrip = {
+    [<LoadColumn(0)>] VendorId : string
+    [<LoadColumn(5)>] RateCode : string
+    [<LoadColumn(3)>] PassengerCount : float32
+    [<LoadColumn(4)>] TripDistance : float32
+    [<LoadColumn(9)>] PaymentType : string
+    [<LoadColumn(10)>] [<ColumnName("Label")>] FareAmount : float32
 }
+
+/// The TaxiTripFarePrediction class represents a single far prediction.
+[<CLIMutable>]
+type TaxiTripFarePrediction = {
+    [<ColumnName("Score")>] FareAmount : float32
+}
+
+// the rest of the code goes here...
 ```
 
-The **TaxiTrip** class holds one single taxi trip. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
+The **TaxiTrip** type holds one single taxi trip. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
 
-You're also declaring a **TaxiTripFarePrediction** class which will hold a single fare prediction.
+You're also declaring a **TaxiTripFarePrediction** type which will hold a single fare prediction.
 
-Now you need to load the training data in memory:
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
 
-```csharp
-/// <summary>
-/// The program class.
-/// </summary>
-class Program
-{
-    // file paths to data files
-    static readonly string dataPath = Path.Combine(Environment.CurrentDirectory, "yellow_tripdata_2018-12.csv");
+Also note the **mutable** keyword in the definition for **TaxiTripFarePrediction**. By default F# types are immutable and the compiler will prevent us from assigning to any property after the type has been instantiated. The **mutable** keyword tells the compiler to create a mutable type instead and allow property assignments after construction. 
 
-    /// <summary>
-    /// The main application entry point.
-    /// </summary>
-    /// <param name="args">The command line arguments.</param>
-    static void Main(string[] args)
-    {
-        // create the machine learning context
-        var mlContext = new MLContext();
-
-        // set up the text loader 
-        var textLoader = mlContext.Data.CreateTextLoader(
-            new TextLoader.Options() 
-            {
-                Separators = new[] { ',' },
-                HasHeader = true,
-                Columns = new[] 
-                {
-                    new TextLoader.Column("VendorId", DataKind.String, 0),
-                    new TextLoader.Column("RateCode", DataKind.String, 5),
-                    new TextLoader.Column("PassengerCount", DataKind.Single, 3),
-                    new TextLoader.Column("TripDistance", DataKind.Single, 4),
-                    new TextLoader.Column("PaymentType", DataKind.String, 9),
-                    new TextLoader.Column("FareAmount", DataKind.Single, 10)
-                }
-            }
-        );
-
-        // load the data 
-        Console.Write("Loading training data....");
-        var dataView = textLoader.Load(dataPath);
-        Console.WriteLine("done");
-
-        // split into a training and test partition
-        var partitions = mlContext.Data.TrainTestSplit(dataView, testFraction: 0.2);
-
-        // the rest of the code goes here...
-    }
-}
-```
-
-This code sets up a **TextLoader** to load the CSV data into memory. Note that all column data types are what you’d expect, except **RateCode** and **PaymentType**. These columns hold numeric values, but you are loading then as string fields.
+We're loading all data columns as **float32**, except **VendorId**, **RateCode** and **PaymentType**. These columns hold numeric values but you will load them as string fields.
 
 The reason you need to do this is because RateCode is an enumeration with the following values:
 
@@ -152,9 +92,31 @@ And PaymentType is defined as follows:
 
 These actual numbers don’t mean anything in this context. And we certainly don’t want the machine learning model to start believing that a trip to Newark is three times as important as a standard fare.
 
-So converting these values to strings is a perfect trick to show the model that **RateCode** and **PaymentType** are just labels, and the underlying numbers don’t mean anything.
+So converting these values to strings is a perfect trick to show the model that **VendorId**, **RateCode** and **PaymentType** are just labels, and the underlying numbers don’t mean anything.
 
-With the TextLoader all set up, a single call to **Load** is sufficient to load the entire data file in memory.
+Now you need to load the training data in memory:
+
+```fsharp
+// file paths to data files (assumes os = windows!)
+let dataPath = sprintf "%s\\yellow_tripdata_2018-12_small.csv" Environment.CurrentDirectory
+
+/// The main application entry point.
+[<EntryPoint>]
+let main argv =
+
+    // create the machine learning context
+    let context = new MLContext()
+
+    // load the data
+    let dataView = context.Data.LoadFromTextFile<TaxiTrip>(dataPath, hasHeader = true, separatorChar = ',')
+
+    // split into a training and test partition
+    let partitions = context.Data.TrainTestSplit(dataView, testFraction = 0.2)
+
+    // the rest of the code goes here...
+```
+
+This code calls **LoadFromTextFile** to load the CSV data into memory. Note the **TaxiTrip** type that tells the method which class to use to load the data.
 
 There is only one single data file, so you need to call **TrainTestSplit** to set up a training partition with 80% of the data and a test partition with the remaining 20% of the data.
 
@@ -162,47 +124,36 @@ You often see this 80/20 split in data science, it’s a very common approach to
 
 Now you’re ready to start building the machine learning model:
 
-```csharp
+```fsharp
 // set up a learning pipeline
-var pipeline = mlContext.Transforms.CopyColumns(
-    inputColumnName:"FareAmount", 
-    outputColumnName:"Label")
+let pipeline = 
+    EstimatorChain()
 
-    // one-hot encode all text features
-    .Append(mlContext.Transforms.Categorical.OneHotEncoding("VendorId"))
-    .Append(mlContext.Transforms.Categorical.OneHotEncoding("RateCode"))
-    .Append(mlContext.Transforms.Categorical.OneHotEncoding("PaymentType"))
+        // one-hot encode all text features
+        .Append(context.Transforms.Categorical.OneHotEncoding("VendorId"))
+        .Append(context.Transforms.Categorical.OneHotEncoding("RateCode"))
+        .Append(context.Transforms.Categorical.OneHotEncoding("PaymentType"))
 
-    // combine all input features into a single column 
-    .Append(mlContext.Transforms.Concatenate(
-        "Features", 
-        "VendorId", 
-        "RateCode", 
-        "PassengerCount", 
-        "TripDistance", 
-        "PaymentType"))
+        // combine all input features into a single column 
+        .Append(context.Transforms.Concatenate("Features", "VendorId", "RateCode", "PaymentType", "PassengerCount", "TripDistance"))
 
-    // cache the data to speed up training
-    .AppendCacheCheckpoint(mlContext)
+        // cache the data to speed up training
+        .AppendCacheCheckpoint(context)
 
-    // use the fast tree learner 
-    .Append(mlContext.Regression.Trainers.FastTree());
+        // use the fast tree learner 
+        .Append(context.Regression.Trainers.FastTree())
 
 // train the model
-Console.Write("Training the model....");
-var model = pipeline.Fit(partitions.TrainSet);
-Console.WriteLine("done");
+let model = partitions.TrainSet |> pipeline.Fit
 
 // the rest of the code goes here...
 ```
-
 
 Machine learning models in ML.NET are built with pipelines which are sequences of data-loading, transformation, and learning components.
 
 This pipeline has the following components:
 
-* **CopyColumns** which copies the FareAmount column to a new column called Label. This Label column holds the actual taxi fare that the model has to predict.
-* A group of three **OneHotEncodings** to perform one hot encoding on the three columns that contains enumerative data: VendorId, RateCode, and PaymentType. This is a required step because machine learning models cannot handle enumerative data directly.
+* A group of three **OneHotEncodings** to perform one hot encoding on the three columns that contains enumerative data: VendorId, RateCode, and PaymentType. This is a required step because we don't want the machine learning model to treat the enumerative data as numeric values.
 * **Concatenate** which combines all input data columns into a single column called Features. This is a required step because ML.NET can only train on a single input column.
 * **AppendCacheCheckpoint** which caches all data in memory to speed up the training process.
 * A final **FastTree** regression learner which will train the model to make accurate predictions.
@@ -215,31 +166,24 @@ The result is a fairly strong prediction model that is actually just an ensemble
 
 We will explore Gradient Boosting in detail in a later section.
 
-With the pipeline fully assembled, you can train the model on the training partition with a call to **Fit**.
+With the pipeline fully assembled, you can train the model on the training partition by piping the **TrainSet** into the **pipeline.Fit** function.
 
-You now have a fully- trained model. So next, you'll have to load the validation data, predict the taxi fare for each trip, and calculate the accuracy of your model:
+You now have a fully- trained model. So next, you'll have to grab the validation data, predict the taxi fare for each trip, and calculate the accuracy of your model:
 
-```csharp
-// get a set of predictions 
-Console.Write("Evaluating the model....");
-var predictions = model.Transform(partitions.TestSet);
-
+```fsharp
 // get regression metrics to score the model
-var metrics = mlContext.Regression.Evaluate(predictions, "Label", "Score");
-Console.WriteLine("done");
+let metrics = partitions.TestSet |> model.Transform |> context.Regression.Evaluate
 
 // show the metrics
-Console.WriteLine();
-Console.WriteLine($"Model metrics:");
-Console.WriteLine($"  RMSE:{metrics.RootMeanSquaredError:#.##}");
-Console.WriteLine($"  MSE: {metrics.MeanSquaredError:#.##}");
-Console.WriteLine($"  MAE: {metrics.MeanAbsoluteError:#.##}");
-Console.WriteLine();
+printfn "Model metrics:"
+printfn "  RMSE:%f" metrics.RootMeanSquaredError
+printfn "  MSE: %f" metrics.MeanSquaredError
+printfn "  MAE: %f" metrics.MeanAbsoluteError
 
 // the rest of the code goes here...
 ```
 
-This code calls **Transform** to set up predictions for every single taxi trip in the test partition. The **Evaluate**(…) method then compares these predictions to the actual taxi fares and automatically calculates these metrics:
+This code pipes the **TestSet** into the **model.Transform** function to generate predictions for every single taxi trip in the test partition. We then pipe these predictions into the **Evaluate** function to compare then to the actual taxi fares and automatically calculates these metrics:
 
 * **RootMeanSquaredError**: this is the root mean squared error or RMSE value. It’s the go-to metric in the field of machine learning to evaluate models and rate their accuracy. RMSE represents the length of a vector in n-dimensional space, made up of the error in each individual prediction.
 * **MeanAbsoluteError**: this is the mean absolute prediction error or MAE value, expressed in dollars.
@@ -251,30 +195,31 @@ Imagine that I'm going to take a standard taxi trip, I cover a distance of 3.75 
 
 Here’s how to make that prediction:
 
-```csharp
+```fsharp
 // create a prediction engine for one single prediction
-var predictionFunction = mlContext.Model.CreatePredictionEngine<TaxiTrip, TaxiTripFarePrediction>(model);
+let engine = context.Model.CreatePredictionEngine model
 
-// prep a single taxi trip
-var taxiTripSample = new TaxiTrip()
-{
-    VendorId = "2",
-    RateCode = "1",
-    PassengerCount = 1,
-    TripDistance = 3.75f,
-    PaymentType = "1",
-    FareAmount = 0 // the model will predict the actual fare for this trip
-};
+let taxiTripSample = {
+    VendorId = "VTS"
+    RateCode = "1"
+    PassengerCount = 1.0f
+    TripDistance = 3.75f
+    PaymentType = "CRD"
+    FareAmount = 0.0f // To predict. Actual/Observed = 15.5
+}
 
 // make the prediction
-var prediction = predictionFunction.Predict(taxiTripSample);
+let prediction = taxiTripSample |> engine.Predict
 
-// sho the prediction
-Console.WriteLine($"Single prediction:");
-Console.WriteLine($"  Predicted fare: {prediction.FareAmount:0.####}");
+// show the prediction
+printfn "\r"
+printfn "Single prediction:"
+printfn "  Predicted fare: %f" prediction.FareAmount
 ```
 
-You use the **CreatePredictionEngine** method to set up a prediction engine. The two type arguments are the input data class and the class to hold the prediction. And once the prediction engine is set up, you can simply call **Predict** to make a single prediction.
+You use the **CreatePredictionEngine** method to set up a prediction engine. This is a type that can make predictions for individual data records. 
+
+Next, you set up a sample with all the details of my taxi trip and pipe it into the **Predict** function to make a single prediction.
 
 The trip should cost anywhere between $13.50 and $18.50, depending on the trip duration (which depends on the time of day). Will the model predict a fare in this range?  
 
