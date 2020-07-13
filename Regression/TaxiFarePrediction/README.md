@@ -114,6 +114,8 @@ let main argv =
     let partitions = context.Data.TrainTestSplit(dataView, testFraction = 0.2)
 
     // the rest of the code goes here...
+
+    0 // return value
 ```
 
 This code calls **LoadFromTextFile** to load the CSV data into memory. Note the **TaxiTrip** type that tells the method which class to use to load the data.
