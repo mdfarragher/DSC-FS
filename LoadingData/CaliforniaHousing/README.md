@@ -259,7 +259,7 @@ We will use these types in the next code snippet.
 Now scroll down to the bottom of the **main** function and add the following code just before the final line that retuns a zero return value:
 
 ```fsharp
-// step 2: bin the longitude
+// step 2: bin, encode, and cross the longitude and latitude
 let pipeline2 = 
     pipeline
         .Append(context.Transforms.NormalizeBinning("BinnedLongitude", "Longitude", maximumBinCount = 10))
@@ -273,6 +273,7 @@ let pipeline2 =
         // step 5: one-hot encode the latitude
         .Append(context.Transforms.Categorical.OneHotEncoding("EncodedLatitude", "BinnedLatitude"))
 
+        // step 6: cross the longitude and latitude vectors
         .Append(
             context.Transforms.CustomMapping(
                 Action<FromLocation, ToLocation>(fun input output -> 
