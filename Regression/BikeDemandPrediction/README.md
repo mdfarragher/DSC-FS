@@ -62,7 +62,7 @@ Now you are ready to add some types. You’ll need one to hold a bike demand rec
 
 Edit the Program.fs file with Visual Studio Code and replace its contents with the following code:
 
-```csharp
+```fsharp
 open System
 open System.IO
 open Microsoft.ML
