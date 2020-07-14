@@ -47,7 +47,7 @@ You can ignore the record index, the date, and the number of casual and register
 Let's get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o BikeDemand
+$ dotnet new console --language F# --output BikeDemand
 $ cd BikeDemand
 ```
 
@@ -58,122 +58,95 @@ $ dotnet add package Microsoft.ML
 $ dotnet add package Microsoft.ML.FastTree
 ```
 
-Now you are ready to add some classes. You’ll need one to hold a bike demand record, and one to hold your model predictions.
+Now you are ready to add some types. You’ll need one to hold a bike demand record, and one to hold your model predictions.
 
-Edit the Program.cs file with Visual Studio Code and add the following code:
+Edit the Program.fs file with Visual Studio Code and replace its contents with the following code:
 
 ```csharp
-using System;
-using Microsoft.ML;
-using System.IO;
-using Microsoft.ML.Data;
+open System
+open System.IO
+open Microsoft.ML
+open Microsoft.ML.Data
 
-namespace BikeDemand
-{
-    /// <summary>
-    /// The DemandObservation class holds one single bike demand observation record.
-    /// </summary>
-    public class DemandObservation
-    {
-        [LoadColumn(2)] public float Season { get; set; }
-        [LoadColumn(3)] public float Year { get; set; }
-        [LoadColumn(4)] public float Month { get; set; }
-        [LoadColumn(5)] public float Hour { get; set; }
-        [LoadColumn(6)] public float Holiday { get; set; }
-        [LoadColumn(7)] public float Weekday { get; set; }
-        [LoadColumn(8)] public float WorkingDay { get; set; }
-        [LoadColumn(9)] public float Weather { get; set; }
-        [LoadColumn(10)] public float Temperature { get; set; }
-        [LoadColumn(11)] public float NormalizedTemperature { get; set; }
-        [LoadColumn(12)] public float Humidity { get; set; }
-        [LoadColumn(13)] public float Windspeed { get; set; }
-        [LoadColumn(16)] [ColumnName("Label")] public float Count { get; set; }
-    }
-
-    /// <summary>
-    /// The DemandPrediction class holds one single bike demand prediction.
-    /// </summary>
-    public class DemandPrediction
-    {
-        [ColumnName("Score")]
-        public float PredictedCount;
-    }
-
-    // the rest of the code goes here...
+/// The DemandObservation class holds one single bike demand observation record.
+[<CLIMutable>]
+type DemandObservation = {
+    [<LoadColumn(2)>] Season : float32
+    [<LoadColumn(3)>] Year : float32
+    [<LoadColumn(4)>] Month : float32
+    [<LoadColumn(5)>] Hour : float32
+    [<LoadColumn(6)>] Holiday : float32
+    [<LoadColumn(7)>] Weekday : float32
+    [<LoadColumn(8)>] WorkingDay : float32
+    [<LoadColumn(9)>] Weather : float32
+    [<LoadColumn(10)>] Temperature : float32
+    [<LoadColumn(11)>] NormalizedTemperature : float32
+    [<LoadColumn(12)>] Humidity : float32
+    [<LoadColumn(13)>] Windspeed : float32
+    [<LoadColumn(16)>] [<ColumnName("Label")>] Count : float32
 }
+
+/// The DemandPrediction class holds one single bike demand prediction.
+[<CLIMutable>]
+type DemandPrediction = {
+    [<ColumnName("Score")>] PredictedCount : float32;
+}
+
+// the rest of the code goes here...
 ```
 
-The **DemandObservation** class holds one single bike trip. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
+The **DemandObservation** type holds one single bike trip. Note how each field is tagged with a **LoadColumn** attribute that tells the CSV data loading code which column to import data from.
 
-You're also declaring a **DemandPrediction** class which will hold a single bike demand prediction.
+You're also declaring a **DemandPrediction** type which will hold a single bike demand prediction.
+
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
 
 Now you need to load the training data in memory:
 
-```csharp
-/// <summary>
-/// The main program class.
-/// </summary>
-static class Program
-{
-    // filename for data set
-    private static string dataPath = Path.Combine(Environment.CurrentDirectory, "bikedemand.csv");
-    
-    static void Main(string[] args)
-    {
-        // create the machine learning context
-        var context = new MLContext();
+```fsharp
+// file paths to data files (assumes os = windows!)
+let dataPath = sprintf "%s\\bikedemand.csv" Environment.CurrentDirectory
 
-        // load the dataset
-        Console.WriteLine("Loading data...");
-        var data = context.Data.LoadFromTextFile<DemandObservation>(
-            path: dataPath, 
-            hasHeader:true, 
-            separatorChar: ',');
+/// The main application entry point.
+[<EntryPoint>]
+let main argv =
 
-        // split the dataset into 80% training and 20% testing
-        var partitions = context.Data.TrainTestSplit(data, testFraction: 0.2);
+    // create the machine learning context
+    let context = new MLContext();
 
-        // the rest of the code goes here...
-    }
-}
+    // load the dataset
+    let data = context.Data.LoadFromTextFile<DemandObservation>(dataPath, hasHeader = true, separatorChar = ',')
+
+    // split the dataset into 80% training and 20% testing
+    let partitions = context.Data.TrainTestSplit(data, testFraction = 0.2)
+
+    // the rest of the code goes here...
+
+    0 // return value
 ```
 
-This code uses the method **LoadFromTextFile** to load the training and testing data directly into memory. The class field annotations tell the method how to store the loaded data in the **DemandObservation** class.
+This code uses the method **LoadFromTextFile** to load the data directly into memory. The field annotations we set up earlier tell the method how to store the loaded data in the **DemandObservation** class.
+
+The code then calls **TrainTestSplit** to reserve 80% of the data for training and 20% for testing.
 
 Now let’s build the machine learning pipeline:
 
-```csharp
+```fsharp
 // build a training pipeline
-// step 1: concatenate all feature columns
-var pipeline = context.Transforms.Concatenate(
-    "Features",
-    nameof(DemandObservation.Season), 
-    nameof(DemandObservation.Year), 
-    nameof(DemandObservation.Month),
-    nameof(DemandObservation.Hour), 
-    nameof(DemandObservation.Holiday), 
-    nameof(DemandObservation.Weekday),
-    nameof(DemandObservation.WorkingDay), 
-    nameof(DemandObservation.Weather), 
-    nameof(DemandObservation.Temperature),
-    nameof(DemandObservation.NormalizedTemperature), 
-    nameof(DemandObservation.Humidity), 
-    nameof(DemandObservation.Windspeed))
+let pipeline = 
+    EstimatorChain()
+    
+        // step 1: concatenate all feature columns
+        .Append(context.Transforms.Concatenate("Features", "Season", "Year", "Month", "Hour", "Holiday", "Weekday", "WorkingDay", "Weather", "Temperature", "NormalizedTemperature", "Humidity", "Windspeed"))
                                 
-    // step 2: cache the data to speed up training
-    .AppendCacheCheckpoint(context)
+        // step 2: cache the data to speed up training
+        .AppendCacheCheckpoint(context)
 
-    // step 3: use a fast forest learner
-    .Append(context.Regression.Trainers.FastForest(
-        labelColumnName: "Label",
-        featureColumnName: "Features",
-        numberOfLeaves: 20,
-        numberOfTrees: 100,
-        minimumExampleCountPerLeaf: 10));
+        // step 3: use a fast forest learner
+        .Append(context.Regression.Trainers.FastForest(numberOfLeaves = 20, numberOfTrees = 100, minimumExampleCountPerLeaf = 10))
 
 // train the model
-Console.WriteLine("Training the model...");
-var trainedModel = pipeline.Fit(partitions.TrainSet);
+let model = partitions.TrainSet |> pipeline.Fit
 
 // the rest of the code goes here...
 ```
@@ -200,28 +173,24 @@ Note the use of hyperparameters to configure the learner:
 
 These hyperparameters are the default for the **FastForest** learner, but you can tweak them if you want. 
 
-With the pipeline fully assembled, you can train the model on the training partition with a call to **Fit**.
+With the pipeline fully assembled, you can pipe the trainig data into the **Fit** function to train the model.
 
-You now have a fully- trained model. So next, you'll have to load the validation data, predict the bike demand, and calculate the accuracy of your model:
+You now have a fully- trained model. So next, you'll have to load the test data, predict the bike demand, and calculate the accuracy of your model:
 
-```csharp
+```fsharp
 // evaluate the model
-Console.WriteLine("Evaluating the model...");
-var predictions = trainedModel.Transform(partitions.TestSet);
-var metrics = context.Regression.Evaluate(
-    data: predictions, 
-    labelColumnName: "Label",
-    scoreColumnName: "Score");
+let metrics = partitions.TestSet |> model.Transform |> context.Regression.Evaluate
 
 // show evaluation metrics
-Console.WriteLine($"   RMSE: {metrics.RootMeanSquaredError}");
-Console.WriteLine($"   MSE:  {metrics.MeanSquaredError}");
-Console.WriteLine($"   MAE:  {metrics.MeanAbsoluteError}");
+printfn "Model metrics:"
+printfn "  RMSE:%f" metrics.RootMeanSquaredError
+printfn "  MSE: %f" metrics.MeanSquaredError
+printfn "  MAE: %f" metrics.MeanAbsoluteError
 
 // the rest of the code goes here...
 ```
 
-This code calls **Transform** to set up predictions for every single bike demand record in the test partition. The **Evaluate** method then compares these predictions to the actual bike demand and automatically calculates these metrics:
+This code pipes the test data into the **Transform** function to set up predictions for every single bike demand record in the test partition. The code then pipes these predictions into the **Evaluate** function to compares them to the actual bike demand and automatically calculate these metrics:
 
 * **RootMeanSquaredError**: this is the root mean squared error or RMSE value. It’s the go-to metric in the field of machine learning to evaluate models and rate their accuracy. RMSE represents the length of a vector in n-dimensional space, made up of the error in each individual prediction.
 * **MeanSquaredError**: this is the mean squared error, or MSE value. Note that RMSE and MSE are related: RMSE is the square root of MSE.
@@ -233,37 +202,37 @@ I want to rent a bike in the fall of 2012, on a Thursday in August at 10am in th
 
 Here’s how to make that prediction:
 
-```csharp
+```fsharp
 // set up a sample observation
-var sample = new DemandObservation()
-{
-    Season = 3,
-    Year = 1,
-    Month = 8,
-    Hour = 10,
-    Holiday = 0,
-    Weekday = 4,
-    WorkingDay = 1,
-    Weather = 1,
-    Temperature = 0.8f,
-    NormalizedTemperature = 0.7576f,
-    Humidity = 0.55f,
+let sample ={
+    Season = 3.0f
+    Year = 1.0f
+    Month = 8.0f
+    Hour = 10.0f
+    Holiday = 0.0f
+    Weekday = 4.0f
+    WorkingDay = 1.0f
+    Weather = 1.0f
+    Temperature = 0.8f
+    NormalizedTemperature = 0.7576f
+    Humidity = 0.55f
     Windspeed = 0.2239f
-};
+    Count = 0.0f // the field to predict
+}
 
 // create a prediction engine
-var engine = context.Model.CreatePredictionEngine<DemandObservation, DemandPrediction>(trainedModel);
+let engine = context.Model.CreatePredictionEngine model
 
 // make the prediction
-Console.WriteLine("Making a prediction...");
-var prediction = engine.Predict(sample);
+let prediction = sample |> engine.Predict
 
 // show the prediction
-Console.WriteLine($"   {prediction.PredictedCount}");
-
+printfn "\r"
+printfn "Single prediction:"
+printfn "  Predicted bike count: %f" prediction.PredictedCount
 ```
 
-You create a new **DemandObservation** instance and use the **CreatePredictionEngine** method to set up a prediction engine. The two type arguments are the input data class and the class to hold the prediction. And when the prediction engine is set up you can simply call **Predict** to make a single prediction.
+This code sets up a new bike demand observation, and then uses the **CreatePredictionEngine** function to set up a prediction engine and call **Predict** to make a demand prediction. 
 
 What will the model prediction be?
 
