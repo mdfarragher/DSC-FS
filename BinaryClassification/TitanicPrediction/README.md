@@ -36,7 +36,7 @@ You're gooing to build a binary classification model that reads in all columns a
 Let’s get started. Here’s how to set up a new console project in NET Core:
 
 ```bash
-$ dotnet new console -o TitanicPrediction
+$ dotnet new console --language F# --output TitanicPrediction
 $ cd TitanicPrediction
 ```
 
@@ -51,49 +51,42 @@ Now you are ready to add some classes. You’ll need one to hold passenger data,
 
 Modify the Program.cs file like this:
 
-```csharp
-using System;
-using System.IO;
-using System.Linq;
-using Microsoft.ML;
-using Microsoft.ML.Data;
-using Microsoft.ML.Transforms;
+```fsharp
+open System
+open System.IO
+open Microsoft.ML
+open Microsoft.ML.Data
+open Microsoft.ML.Transforms
 
-namespace TitanicPrediction
-{
-    /// <summary>
-    /// The Passenger class represents one passenger on the Titanic.
-    /// </summary>
-    public class Passenger
-    {
-        public bool Label;
-        public float Pclass;
-        public string Name;
-        public string Sex;
-        public string RawAge;
-        public float SibSp;
-        public float Parch;
-        public string Ticket;
-        public float Fare;
-        public string Cabin;
-        public string Embarked;
-    }
-
-    /// <summary>
-    /// The PassengerPrediction class represents one model prediction. 
-    /// </summary>
-    public class PassengerPrediction
-    {
-        [ColumnName("PredictedLabel")] public bool Prediction;
-        public float Probability;
-        public float Score;
-    }
-
-    // the rest of the code goes here...
+/// The Passenger class represents one passenger on the Titanic.
+[<CLIMutable>]
+type Passenger = {
+    [<LoadColumn(1)>] Label : bool
+    [<LoadColumn(2)>] Pclass : float32
+    [<LoadColumn(4)>] Sex : string
+    [<LoadColumn(5)>] RawAge : string // not a float!
+    [<LoadColumn(6)>] SibSp : float32
+    [<LoadColumn(7)>] Parch : float32
+    [<LoadColumn(8)>] Ticket : string
+    [<LoadColumn(9)>] Fare : float32
+    [<LoadColumn(10)>] Cabin : string
+    [<LoadColumn(11)>] Embarked : string
 }
+
+/// The PassengerPrediction class represents one model prediction. 
+[<CLIMutable>]
+type PassengerPrediction = {
+    [<ColumnName("PredictedLabel")>] Prediction : bool
+    Probability : float32
+    Score : float32
+}
+
+// the rest of the code goes here...
 ```
 
-The **Passenger** class holds one single passenger record. There's also a **PassengerPrediction** class which will hold a single passenger prediction. There's a boolean **Prediction**, a **Probability** value, and the **Score** the model will assign to the prediction.
+The **Passenger** type holds one single passenger record. There's also a **PassengerPrediction** type which will hold a single passenger prediction. There's a boolean **Prediction**, a **Probability** value, and the **Score** the model will assign to the prediction.
+
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
 
 Now look at the age column in the data file. It's a number, but for some passengers in the manifest the age is not known and the column is empty.
 
@@ -103,201 +96,148 @@ The Titanic datafile uses an empty string to denote missing values, so we'll hav
 
 Notice how the age is loaded as s string into a Passenger class field called **RawAge**. 
 
-We will process the missing values later in our app. To prepare for this, we'll need two additional helper classes:
+We will process the missing values later in our app. To prepare for this, we'll need an additional helper type:
 
-```csharp
-/// <summary>
-/// The RawAge class is a helper class for a column transformation.
-/// </summary>
-public class FromAge
-{
-    public string RawAge;
-}
-
-/// <summary>
-/// The ProcessedAge class is a helper class for a column transformation.
-/// </summary>
-public class ToAge
-{
-    public string Age;
+```fsharp
+/// The ToAge class is a helper class for a column transformation.
+[<CLIMutable>]
+type ToAge = {
+    mutable Age : string
 }
 
 // the rest of the code goes here...
 ```
 
-The **FromAge** class contains the 'raw' unprocessed age as a string and the **ToAge** class that contains the processed age. 
+The **ToAge** type will contain the converted age values. We will set up this conversion in a minute. 
+
+Note the **mutable** keyword. By default F# types are immutable and the compiler will prevent us from assigning to any property after the type has been instantiated. The **mutable** keyword tells the compiler to create a mutable type instead and allow property assignments after construction. 
 
 Now you're going to load the training data in memory:
 
-```csharp
-/// <summary>
-/// The main program class.
-/// </summary>
-public class Program
-{
-    // filenames for training and test data
-    private static string trainingDataPath = Path.Combine(Environment.CurrentDirectory, "train_data.csv");
-    private static string testDataPath = Path.Combine(Environment.CurrentDirectory, "test_data.csv");
+```fsharp
+/// file path to the train data file (assumes os = windows!)
+let trainDataPath = sprintf "%s\\train_data.csv" Environment.CurrentDirectory
 
-    /// <summary>
-    /// The main application entry point.
-    /// </summary>
-    /// <param name="args">The command line arguments.</param>
-    public static void Main(string[] args)
-    {
-        // set up a machine learning context
-        var mlContext = new MLContext();
+/// file path to the test data file (assumes os = windows!)
+let testDataPath = sprintf "%s\\test_data.csv" Environment.CurrentDirectory
 
-        // set up a text loader
-        var textLoader = mlContext.Data.CreateTextLoader(
-            new TextLoader.Options() 
-            {
-                Separators = new[] { ',' },
-                HasHeader = true,
-                AllowQuoting = true,
-                Columns = new[] 
-                {
-                    new TextLoader.Column("Label", DataKind.Boolean, 1),
-                    new TextLoader.Column("Pclass", DataKind.Single, 2),
-                    new TextLoader.Column("Name", DataKind.String, 3),
-                    new TextLoader.Column("Sex", DataKind.String, 4),
-                    new TextLoader.Column("RawAge", DataKind.String, 5),  // <-- not a float!
-                    new TextLoader.Column("SibSp", DataKind.Single, 6),
-                    new TextLoader.Column("Parch", DataKind.Single, 7),
-                    new TextLoader.Column("Ticket", DataKind.String, 8),
-                    new TextLoader.Column("Fare", DataKind.Single, 9),
-                    new TextLoader.Column("Cabin", DataKind.String, 10),
-                    new TextLoader.Column("Embarked", DataKind.String, 11)
-                }
-            }
-        );
+[<EntryPoint>]
+let main argv = 
 
-        // load training and test data
-        Console.WriteLine("Loading data...");
-        var trainingDataView = textLoader.Load(trainingDataPath);
-        var testDataView = textLoader.Load(testDataPath);
+    // set up a machine learning context
+    let context = new MLContext()
 
-        // the rest of the code goes here...
-    }
-}
+    // load the training and testing data in memory
+    let trainData = context.Data.LoadFromTextFile<Passenger>(trainDataPath, hasHeader = true, separatorChar = ',', allowQuoting = true)
+    let testData = context.Data.LoadFromTextFile<Passenger>(testDataPath, hasHeader = true, separatorChar = ',', allowQuoting = true)
+
+    // the rest of the code goes here...
+
+    0 // return value
 ```
 
-This code uses the **CreateTextLoader** method to create a CSV data loader. The **TextLoader.Options** class describes how to load each field. Then I call the text loader’s **Load** method twice to load the train- and test data in memory.
+This code calls the **LoadFromTextFile** function twice to load the training and testing datasets in memory.
 
 ML.NET expects missing data in CSV files to appear as a ‘?’, but unfortunately the Titanic file uses an empty string to indicate an unknown age. So the first thing you need to do is replace all empty age strings occurrences with ‘?’.
 
-We also don't need the Name, Cabin, and Ticket columns to make predictions, so you'll add some code to get rid of them too.
-
 Add the following code:
 
-```csharp
+```fsharp
 // set up a training pipeline
-// step 1: drop the name, cabin, and ticket columns
-var pipeline = mlContext.Transforms.DropColumns("Name", "Cabin", "Ticket")
+let pipeline = 
+    EstimatorChain()
 
-    // step 2: replace missing ages with '?'
-    .Append(mlContext.Transforms.CustomMapping<FromAge, ToAge>(
-        (inp, outp) => { outp.Age = string.IsNullOrEmpty(inp.RawAge) ? "?" : inp.RawAge; },
-        "AgeMapping"
-    ))
+        // step 1: replace missing ages with '?'
+        .Append(
+            context.Transforms.CustomMapping(
+                Action<Passenger, ToAge>(fun input output -> output.Age <- if String.IsNullOrEmpty(input.RawAge) then "?" else input.RawAge),
+                "AgeMapping"))
 
-// the rest of the code goes here...
+        // the rest of the code goes here...
 ```
 
 Machine learning models in ML.NET are built with pipelines, which are sequences of data-loading, transformation, and learning components.
 
-The first **DropColumn** component drops the Name, Cabin, and Ticket columns from the dataset. The next **CustomMapping** component converts empty age strings to ‘?’ values.
+The **CustomMapping** component converts empty age strings to ‘?’ values.
 
-Now ML.NET is happy with the age values. You will now convert the string ages to numeric values and instruct ML.NET to replace any missing values with the mean age over the entire dataset:
+Now ML.NET is happy with the age values. You will now convert the string ages to numeric values and instruct ML.NET to replace any missing values with the mean age over the entire dataset.
 
-```csharp
-// step 3: convert string ages to floats
-.Append(mlContext.Transforms.Conversion.ConvertType(
-    "Age",
-    outputKind: DataKind.Single
-))
+Add the following code, and make sure you match the indentation level of the previous **Append** function exactly. Indentation is significant in F# and the wrong indentation level will lead to compiler errors:
 
-// step 4: replace missing age values with the mean age
-.Append(mlContext.Transforms.ReplaceMissingValues(
-    "Age",
-    replacementMode: MissingValueReplacingEstimator.ReplacementMode.Mean))
+```fsharp
+// step 2: convert string ages to floats
+.Append(context.Transforms.Conversion.ConvertType("Age", outputKind = DataKind.Single))
+
+// step 3: replace missing age values with the mean age
+.Append(context.Transforms.ReplaceMissingValues("Age", replacementMode = MissingValueReplacingEstimator.ReplacementMode.Mean))
 
 // the rest of the code goes here...
 ```
 
 The **ConvertType** component converts the Age column to a single-precision floating point value. And the **ReplaceMissingValues** component replaces any missing values with the mean value of all ages in the entire dataset. 
 
-Now let's process the rest of the data columns. The Sex and Embarked columns are enumerations of string values. As you've learned in the Processing Data section, you'll need to one-hot encode them first:
+Now let's process the rest of the data columns. The Sex, Ticket, Cabin, and Embarked columns are enumerations of string values. As you've already learned, you'll need to one-hot encode them:
 
-```csharp
-// step 5: replace sex and embarked columns with one-hot encoded vectors
-.Append(mlContext.Transforms.Categorical.OneHotEncoding("Sex"))
-.Append(mlContext.Transforms.Categorical.OneHotEncoding("Embarked"))
+```fsharp
+// step 4: replace string columns with one-hot encoded vectors
+.Append(context.Transforms.Categorical.OneHotEncoding("Sex"))
+.Append(context.Transforms.Categorical.OneHotEncoding("Ticket"))
+.Append(context.Transforms.Categorical.OneHotEncoding("Cabin"))
+.Append(context.Transforms.Categorical.OneHotEncoding("Embarked"))
 
 // the rest of the code goes here...
 ```
 
-The **OneHotEncoding** component takes an input column, one-hot encodes all values, and produces a new column with the same name holding the one-hot vectors. 
+The **OneHotEncoding** components take an input column, one-hot encode all values, and produce a new column with the same name holding the one-hot vectors. 
 
 Now let's wrap up the pipeline:
 
-```csharp
-// step 6: concatenate everything into a single feature column 
-.Append(mlContext.Transforms.Concatenate(
-    "Features", 
-    "Age",
-    "Pclass", 
-    "SibSp",
-    "Parch",
-    "Sex",
-    "Embarked"))
+```fsharp
+        // step 5: concatenate everything into a single feature column 
+        .Append(context.Transforms.Concatenate("Features", "Age", "Pclass", "SibSp", "Parch", "Sex", "Embarked"))
 
-// step 7: use a fasttree trainer
-.Append(mlContext.BinaryClassification.Trainers.FastTree(
-    labelColumnName: "Label", 
-    featureColumnName: "Features"));
+        // step 6: use a fasttree trainer
+        .Append(context.BinaryClassification.Trainers.FastTree())
 
-// the rest of the code goes here...
+// the rest of the code goes here (indented back 2 levels!)...
 ```
 
 The **Concatenate** component concatenates all remaining feature columns into a single column for training. This is required because ML.NET can only train on a single input column.
 
 And the **FastTreeBinaryClassificationTrainer** is the algorithm that's going to train the model. You're going to build a decision tree classifier that uses the Fast Tree algorithm to train on the data and configure the tree.
 
+Note the indentation level of the 'the rest of the code...' comment. Make sure that when you add the remaining code you indent this code back by two levels to match the indentation level of the **main** function.
+
 Now all you need to do now is train the model on the entire dataset, compare the predictions with the labels, and compute a bunch of metrics that describe how accurate the model is:
 
-```csharp
+```fsharp
 // train the model
-Console.WriteLine("Training model...");
-var trainedModel = pipeline.Fit(trainingDataView);
+let model = trainData |> pipeline.Fit
 
-// make predictions for the test data set
-Console.WriteLine("Evaluating model...");
-var predictions = trainedModel.Transform(testDataView);
-
-// compare the predictions with the ground truth
-var metrics = mlContext.BinaryClassification.Evaluate(
-    data: predictions, 
-    labelColumnName: "Label", 
-    scoreColumnName: "Score");
+// make predictions and compare with ground truth
+let metrics = testData |> model.Transform |> context.BinaryClassification.Evaluate
 
 // report the results
-Console.WriteLine($"  Accuracy:          {metrics.Accuracy:P2}");
-Console.WriteLine($"  Auc:               {metrics.AreaUnderRocCurve:P2}");
-Console.WriteLine($"  Auprc:             {metrics.AreaUnderPrecisionRecallCurve:P2}");
-Console.WriteLine($"  F1Score:           {metrics.F1Score:P2}");
-Console.WriteLine($"  LogLoss:           {metrics.LogLoss:0.##}");
-Console.WriteLine($"  LogLossReduction:  {metrics.LogLossReduction:0.##}");
-Console.WriteLine($"  PositivePrecision: {metrics.PositivePrecision:0.##}");
-Console.WriteLine($"  PositiveRecall:    {metrics.PositiveRecall:0.##}");
-Console.WriteLine($"  NegativePrecision: {metrics.NegativePrecision:0.##}");
-Console.WriteLine($"  NegativeRecall:    {metrics.NegativeRecall:0.##}");
-Console.WriteLine();
+printfn "Model metrics:"
+printfn "  Accuracy:          %f" metrics.Accuracy
+printfn "  Auc:               %f" metrics.AreaUnderRocCurve
+printfn "  Auprc:             %f" metrics.AreaUnderPrecisionRecallCurve
+printfn "  F1Score:           %f" metrics.F1Score
+printfn "  LogLoss:           %f" metrics.LogLoss
+printfn "  LogLossReduction:  %f" metrics.LogLossReduction
+printfn "  PositivePrecision: %f" metrics.PositivePrecision
+printfn "  PositiveRecall:    %f" metrics.PositiveRecall
+printfn "  NegativePrecision: %f" metrics.NegativePrecision
+printfn "  NegativeRecall:    %f" metrics.NegativeRecall
 
 // the rest of the code goes here...
 ```
 
-This code calls **Fit** to train the model on the entire dataset, **Transform** to set up a prediction for each passenger, and **Evaluate** to compare these predictions to the label and automatically calculate all evaluation metrics:
+This code pipes the training data into the **Fit** function to train the model on the entire dataset.
+
+We then pipe the test data into the **Transform** function to set up a prediction for each passenger, and pipe these predictions into the **Evaluate** function to compare them to the label and automatically calculate evaluation metrics.
+
+We then display the following metrics:
 
 * **Accuracy**: this is the number of correct predictions divided by the total number of predictions.
 * **AreaUnderRocCurve**: a metric that indicates how accurate the model is: 0 = the model is wrong all the time, 0.5 = the model produces random output, 1 = the model is correct all the time. An AUC of 0.8 or higher is considered good.
@@ -316,34 +256,36 @@ What are my odds of surviving?
 
 Add the following code:
 
-```csharp
+```fsharp
 // set up a prediction engine
-Console.WriteLine("Making a prediction...");
-var predictionEngine = mlContext.Model.CreatePredictionEngine<Passenger, PassengerPrediction>(trainedModel);
+let engine = context.Model.CreatePredictionEngine model
 
 // create a sample record
-var passenger = new Passenger()
-{ 
-    Pclass = 1,
-    Name = "Mark Farragher",
-    Sex = "male",
-    RawAge = "48",
-    SibSp = 0,
-    Parch = 0,
-    Fare = 70,
+let passenger = {
+    Pclass = 1.0f
+    Sex = "male"
+    RawAge = "48"
+    SibSp = 0.0f
+    Parch = 0.0f
+    Ticket = "B"
+    Fare = 70.0f
+    Cabin = "123"
     Embarked = "S"
-};
+    Label = false // unused!
+}
 
 // make the prediction
-var prediction = predictionEngine.Predict(passenger);
+let prediction = engine.Predict passenger
 
 // report the results
-Console.WriteLine($"Passenger:   {passenger.Name} ");
-Console.WriteLine($"Prediction:  {(prediction.Prediction ? "survived" : "perished" )} ");
-Console.WriteLine($"Probability: {prediction.Probability} ");            
+printfn "Model prediction:"
+printfn "  Prediction:  %s" (if prediction.Prediction then "survived" else "perished")
+printfn "  Probability: %f" prediction.Probability
 ```
 
-This code uses the **CreatePredictionEngine** method to set up a prediction engine. The two type arguments are the input data class and the class to hold the prediction. And once the prediction engine is set up, you can simply call **Predict** to make a single prediction.
+This code uses the **CreatePredictionEngine** method to create a prediction engine. With the prediction engine set up, you can simply call **Predict** to make a single prediction.
+
+The code sets up a new passenger record with my information and then calls **Predict** to make a prediction about my survival chances. 
 
 So would I have survived the Titanic disaster?
 
