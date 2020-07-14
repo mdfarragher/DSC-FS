@@ -35,7 +35,7 @@ Here's a description of all 31 columns in the data file:
 Go to the console and set up a new console application:
 
 ```bash
-$ dotnet new console -o FraudDetection
+$ dotnet new console --language F# --output FraudDetection
 $ cd FraudDetection
 ```
 
