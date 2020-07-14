@@ -98,7 +98,7 @@ let castToEstimator (x : IEstimator<_>) =
 // the rest of the code goes here
 ```
 
-The **castToEstimator** function takes an **IEstimator<>** argument and uses pattern matching to cast the value to an **IEstimator<ITransformer>** type. You'll see in a minute why we need this helper function. 
+The **castToEstimator** function takes an **IEstimator<>** argument and uses pattern matching to cast the value to an **IEstimator\<ITransformer\>** type. You'll see in a minute why we need this helper function. 
 
 Now you're ready to load the training data in memory:
 
@@ -183,7 +183,7 @@ cvResults |> Seq.iter(fun f -> printfn "  Fold: %i, AUC: %f" f.Fold f.Metrics.Ar
 // the rest of the code goes here....
 ```
 
-This code calls the **CrossValidate** method to perform K-Fold Cross Validation on the training partition using 5 folds. Note how we call **castToEstimator** to cast the pipeline to a **IEstimator<ITransformer>** type. 
+This code calls the **CrossValidate** method to perform K-Fold Cross Validation on the training partition using 5 folds. Note how we call **castToEstimator** to cast the pipeline to an **IEstimator\<ITransformer\>** type. 
 
 We need to do this because the **EstimatorChain** function we use every time to build the machine learning pipeline produces a type that cannot be read directly by **CrossValidate**. And the F# compiler is unable to perform the type cast for us automatically, so we need the helper function to perform the cast explicitly.   
 
