@@ -39,7 +39,7 @@ Here's a description of all columns in the file:
 Go to the console and set up a new console application:
 
 ```bash
-$ dotnet new console -o DiabetesDetection
+$ dotnet new console --language F# --output DiabetesDetection
 $ cd DiabetesDetection
 ```
 
