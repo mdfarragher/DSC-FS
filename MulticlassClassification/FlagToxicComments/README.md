@@ -38,7 +38,7 @@ Here's a description of all columns in the training file:
 Go to the console and set up a new console application:
 
 ```bash
-$ dotnet new console -o FlagToxicComments
+$ dotnet new console --language F# --output FlagToxicComments
 $ cd FlagToxicComments
 ```
 
@@ -62,14 +62,11 @@ To process text data, you'll need to add a **FeaturizeText** component to your m
 
 Your code should look something like this:
 
-```csharp
-// assume we have a partial pipeline in the variable 'partialPipe'
-
-// add a text featurizer to the pipeline. It will read the 'CommentText' column,
-// transform the text to a numeric vector and store it in the 'Features' column
-var completePipe = partialPipe.Append(context.Transforms.Text.FeaturizeText(
-    outputColumnName: "Features",
-    inputColumnName: "CommentText"))
+```fsharp
+// Assume we have a partial pipeline in the variable 'partialPipe'
+// This line adds a text featurizer to the pipeline. It reads the 'CommentText' column and
+//   transforms it to a numeric vector and stores it in the 'Features' column
+let completePipe = partialPipe.Append(context.Transforms.Text.FeaturizeText("Features", "CommentText"))
 ```
 
 FeaturizeText is a handy all-in-one component that can read text columns, process them, and convert them to numeric vectors 
