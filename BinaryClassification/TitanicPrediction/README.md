@@ -49,7 +49,7 @@ $ dotnet add package Microsoft.ML.FastTree
 
 Now you are ready to add some classes. You’ll need one to hold passenger data, and one to hold your model predictions.
 
-Modify the Program.cs file like this:
+Replace the contents of the Program.fs file with this:
 
 ```fsharp
 open System
