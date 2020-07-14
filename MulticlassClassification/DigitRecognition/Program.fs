@@ -68,7 +68,7 @@ let main argv =
     let testDigits = [ digits.[5]; digits.[16]; digits.[28]; digits.[63]; digits.[129] ]
 
     // create a prediction engine
-    let engine = context.Model.CreatePredictionEngine<Digit, DigitPrediction> model
+    let engine = context.Model.CreatePredictionEngine model
 
     // show predictions
     printfn "Model predictions:"

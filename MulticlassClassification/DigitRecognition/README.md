@@ -69,7 +69,7 @@ type DigitPrediction = {
 }
 ```
 
-The **Digit** type holds one single MNIST digit image. Note how the field is tagged with a **VectorType** attribute. This tells ML.NET to combine the 784 individual pixel columns into a single vector value.
+The **Digit** type holds one single MNIST digit image. Note how the **PixelValues** field is tagged with a **VectorType** attribute. This tells ML.NET to combine the 784 individual pixel columns into a single vector value.
 
 There's also a **DigitPrediction** type which will hold a single prediction. And notice how the prediction score is actually an array? The model will generate 10 scores, one for every possible digit value. 
 
@@ -178,7 +178,7 @@ let digits = context.Data.CreateEnumerable(testData, reuseRowObject = false) |> 
 let testDigits = [ digits.[5]; digits.[16]; digits.[28]; digits.[63]; digits.[129] ]
 
 // create a prediction engine
-let engine = context.Model.CreatePredictionEngine<Digit, DigitPrediction> model
+let engine = context.Model.CreatePredictionEngine model
 
 // show predictions
 printfn "Model predictions:"
