@@ -34,141 +34,95 @@ You are going to build a multiclass classification machine learning model that r
 Let’s get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o Mnist
+$ dotnet new console --language F# --output Mnist
 $ cd Mnist
 ```
 
-Now install the following ML.NET packages:
+Now install the ML.NET package:
 
 ```bash
 $ dotnet add package Microsoft.ML
-$ dotnet add package BetterConsoleTables
 ```
 
-**BetterConsoleTables** is a package that will help you output tabular data in a nice format to the console. 
+Now you are ready to add types. You’ll need one to hold a digit, and one to hold your model prediction.
 
-Now you are ready to add some classes. You’ll need one to hold a digit, and one to hold your model prediction.
+Replace the contents of the Program.fs file with this:
 
-Modify the Program.cs file like this:
+```fsharp
+open System
+open System.IO
+open Microsoft.ML
+open Microsoft.ML.Data
+open Microsoft.ML.Transforms
 
-```csharp
-using System;
-using System.IO;
-using System.Linq;
-using Microsoft.ML;
-using Microsoft.ML.Data;
-using Microsoft.ML.Transforms;
-using BetterConsoleTables;
+/// The Digit class represents one mnist digit.
+[<CLIMutable>]
+type Digit = {
+    [<LoadColumn(0)>] Number : float32
+    [<LoadColumn(1, 784)>] [<VectorType(784)>] PixelValues : float32[]
+}
 
-namespace Mnist
-{
-    /// <summary>
-    /// The Digit class represents one mnist digit.
-    /// </summary>
-    class Digit
-    {
-        [ColumnName("PixelValues")]
-        [VectorType(784)]
-        public float[] PixelValues;
-
-        [LoadColumn(0)]
-        public float Number;
-    }
-
-    /// <summary>
-    /// The DigitPrediction class represents one digit prediction.
-    /// </summary>
-    class DigitPrediction
-    {
-        [ColumnName("Score")]
-        public float[] Score;
-    }
-
-    // the rest of the code goes here....
+/// The DigitPrediction class represents one digit prediction.
+[<CLIMutable>]
+type DigitPrediction = {
+    Score : float32[]
 }
 ```
 
-The Digit class holds one single MNIST digit image. Note how the field is tagged with a VectorType attribute. This tells ML.NET to combine the 784 individual pixel columns into a single vector value.
+The **Digit** type holds one single MNIST digit image. Note how the field is tagged with a **VectorType** attribute. This tells ML.NET to combine the 784 individual pixel columns into a single vector value.
 
-There's also a DigitPrediction class which will hold a single prediction. And notice how the prediction score is actually an array? The model will generate 10 scores, one for every possible digit value. 
+There's also a **DigitPrediction** type which will hold a single prediction. And notice how the prediction score is actually an array? The model will generate 10 scores, one for every possible digit value. 
+
+Also note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
 
 Next you'll need to load the data in memory:
 
-```csharp
-/// <summary>
-/// The main program class.
-/// </summary>
-class Program
-{
-    // filenames for data set
-    private static string trainDataPath = Path.Combine(Environment.CurrentDirectory, "mnist_train.csv");
-    private static string testDataPath = Path.Combine(Environment.CurrentDirectory, "mnist_test.csv");
+```fsharp
+/// file paths to train and test data files (assumes os = windows!)
+let trainDataPath = sprintf "%s\\mnist_train.csv" Environment.CurrentDirectory
+let testDataPath = sprintf "%s\\mnist_test.csv" Environment.CurrentDirectory
 
-    /// <summary>
-    /// The program entry point.
-    /// </summary>
-    /// <param name="args">The command line arguments.</param>
-    static void Main(string[] args)
-    {
-        // create a machine learning context
-        var context = new MLContext();
+[<EntryPoint>]
+let main argv = 
 
-        // load data
-        Console.WriteLine("Loading data....");
-        var columnDef = new TextLoader.Column[]
-        {
-            new TextLoader.Column(nameof(Digit.PixelValues), DataKind.Single, 1, 784),
-            new TextLoader.Column("Number", DataKind.Single, 0)
-        };
-        var trainDataView = context.Data.LoadFromTextFile(
-            path: trainDataPath,
-            columns : columnDef,
-            hasHeader : true,
-            separatorChar : ',');
-        var testDataView = context.Data.LoadFromTextFile(
-            path: testDataPath,
-            columns : columnDef,
-            hasHeader : true,
-            separatorChar : ',');
+    // create a machine learning context
+    let context = new MLContext()
 
-        // the rest of the code goes here....
-    }
-}
+    // load the datafiles
+    let trainData = context.Data.LoadFromTextFile<Digit>(trainDataPath, hasHeader = true, separatorChar = ',')
+    let testData = context.Data.LoadFromTextFile<Digit>(testDataPath, hasHeader = true, separatorChar = ',')
+
+    // the rest of the code goes here....
+
+    0 // return value
 ```
 
-This code uses the **LoadFromTextFile** method to load the CSV data directly into memory. Note the **columnDef** variable that instructs ML.NET to load CSV columns 1..784 into the PixelValues column, and CSV column 0 into the Number column.
+This code uses the **LoadFromTextFile** function to load the CSV data directly into memory. We call this function twice to load the training and testing datasets separately.
 
 Now let’s build the machine learning pipeline:
 
-```csharp
+```fsharp
 // build a training pipeline
-// step 1: map the number column to a key value and store in the label column
-var pipeline = context.Transforms.Conversion.MapValueToKey(
-    outputColumnName: "Label", 
-    inputColumnName: "Number", 
-    keyOrdinality: ValueToKeyMappingEstimator.KeyOrdinality.ByValue)
+let pipeline = 
+    EstimatorChain()
 
-    // step 2: concatenate all feature columns
-    .Append(context.Transforms.Concatenate(
-        "Features", 
-        nameof(Digit.PixelValues)))
+        // step 1: map the number column to a key value and store in the label column
+        .Append(context.Transforms.Conversion.MapValueToKey("Label", "Number", keyOrdinality = ValueToKeyMappingEstimator.KeyOrdinality.ByValue))
+
+        // step 2: concatenate all feature columns
+        .Append(context.Transforms.Concatenate("Features", "PixelValues"))
         
-    // step 3: cache data to speed up training                
-    .AppendCacheCheckpoint(context)
+        // step 3: cache data to speed up training                
+        .AppendCacheCheckpoint(context)
 
-    // step 4: train the model with SDCA
-    .Append(context.MulticlassClassification.Trainers.SdcaMaximumEntropy(
-        labelColumnName: "Label", 
-        featureColumnName: "Features"))
+        // step 4: train the model with SDCA
+        .Append(context.MulticlassClassification.Trainers.SdcaMaximumEntropy())
 
-    // step 5: map the label key value back to a number
-    .Append(context.Transforms.Conversion.MapKeyToValue(
-        outputColumnName: "Number",
-        inputColumnName: "Label"));
+        // step 5: map the label key value back to a number
+        .Append(context.Transforms.Conversion.MapKeyToValue("Number", "Label"))
 
 // train the model
-Console.WriteLine("Training model....");
-var model = pipeline.Fit(trainDataView);
+let model = trainData |> pipeline.Fit
 
 // the rest of the code goes here....
 ```
@@ -183,33 +137,25 @@ This pipeline has the following components:
 * A **SdcaMaximumEntropy** classification learner which will train the model to make accurate predictions.
 * A final **MapKeyToValue** step which converts the keys in the **Label** column back to the original number values. We need this step to show the numbers when making predictions. 
 
-With the pipeline fully assembled, you can train the model with a call to **Fit**.
+With the pipeline fully assembled, we can train the model by piping the training data into the **Fit** function.
 
 You now have a fully- trained model. So now it's time to take the test set, predict the number for each digit image, and calculate the accuracy metrics of the model:
 
-```csharp
-// use the model to make predictions on the test data
-Console.WriteLine("Evaluating model....");
-var predictions = model.Transform(testDataView);
-
-// evaluate the predictions
-var metrics = context.MulticlassClassification.Evaluate(
-    data: predictions, 
-    labelColumnName: "Number", 
-    scoreColumnName: "Score");
+```fsharp
+// get predictions and compare them to the ground truth
+let metrics = testData |> model.Transform |> context.MulticlassClassification.Evaluate
 
 // show evaluation metrics
-Console.WriteLine($"Evaluation metrics");
-Console.WriteLine($"    MicroAccuracy:    {metrics.MicroAccuracy:0.###}");
-Console.WriteLine($"    MacroAccuracy:    {metrics.MacroAccuracy:0.###}");
-Console.WriteLine($"    LogLoss:          {metrics.LogLoss:#.###}");
-Console.WriteLine($"    LogLossReduction: {metrics.LogLossReduction:#.###}");
-Console.WriteLine();
+printfn "Evaluation metrics"
+printfn "  MicroAccuracy:    %f" metrics.MicroAccuracy
+printfn "  MacroAccuracy:    %f" metrics.MacroAccuracy
+printfn "  LogLoss:          %f" metrics.LogLoss
+printfn "  LogLossReduction: %f" metrics.LogLossReduction
 
 // the rest of the code goes here....
 ```
 
-This code calls **Transform** to set up predictions for every single image in the test set. And the **Evaluate** method compares these predictions to the actual labels and automatically calculates four metrics:
+This code pipes the test data into the **Transform** function to set up predictions for every single image in the test set. Then it pipes these predictions into the **Evaluate** function to compare these predictions to the actual labels and automatically calculate four metrics:
 
 * **MicroAccuracy**: this is the average accuracy (=the number of correct predictions divided by the total number of predictions) for every digit in the dataset.
 * **MacroAccuracy**: this is calculated by first calculating the average accuracy for each unique prediction value, and then taking the averages of those averages.
@@ -226,49 +172,32 @@ You will pick five arbitrary digits from the test set, run them through the mode
 
 Here’s how to do it:
 
-```csharp
-// grab three digits from the test data
-var digits = context.Data.CreateEnumerable<Digit>(testDataView, reuseRowObject: false).ToArray();
-var testDigits = new Digit[] { digits[5], digits[16], digits[28], digits[63], digits[129] };
+```fsharp
+// grab five digits from the test data
+let digits = context.Data.CreateEnumerable(testData, reuseRowObject = false) |> Array.ofSeq
+let testDigits = [ digits.[5]; digits.[16]; digits.[28]; digits.[63]; digits.[129] ]
 
 // create a prediction engine
-var engine = context.Model.CreatePredictionEngine<Digit, DigitPrediction>(model);
+let engine = context.Model.CreatePredictionEngine<Digit, DigitPrediction> model
 
-// set up a table to show the predictions
-var table = new Table(TableConfiguration.Unicode());
-table.AddColumn("Digit");
-for (var i = 0; i < 10; i++)
-    table.AddColumn($"P{i}");
-
-// predict each test digit
-for (var i=0; i < testDigits.Length; i++)
-{
-    var prediction = engine.Predict(testDigits[i]);
-    table.AddRow(
-        testDigits[i].Number, 
-        prediction.Score[0].ToString("P2"),
-        prediction.Score[1].ToString("P2"),
-        prediction.Score[2].ToString("P2"),
-        prediction.Score[3].ToString("P2"),
-        prediction.Score[4].ToString("P2"),
-        prediction.Score[5].ToString("P2"),
-        prediction.Score[6].ToString("P2"),
-        prediction.Score[7].ToString("P2"),
-        prediction.Score[8].ToString("P2"),
-        prediction.Score[9].ToString("P2"));
-}
-
-// show results
-Console.WriteLine(table.ToString());
+// show predictions
+printfn "Model predictions:"
+printf "  #\t\t"; [0..9] |> Seq.iter(fun i -> printf "%i\t\t" i); printfn ""
+testDigits |> Seq.iter(
+    fun digit -> 
+        printf "  %i\t" (int digit.Number)
+        let p = engine.Predict digit
+        p.Score |> Seq.iter (fun s -> printf "%f\t" s)
+        printfn "")
 ```
 
-This code calls the **CreateEnumerable** method to convert the test dataview to an array of Digit instances. Then it picks five random digits for testing.
+This code calls the **CreateEnumerable** function to convert the test dataview to an array of **Digit** instances. Then it picks five random digits for testing.
 
-The **CreatePredictionEngine** method sets up a prediction engine. The two type arguments are the input data class and the class to hold the prediction.
+We then call the **CreatePredictionEngine** function to set up a prediction engine. 
 
-The code then prepares a **Table** from the **BetterConsoleTables** package to present the output in a nice tabular format. 
+The code then calls **Seq.iter** to print column headings for each of the 10 possible digit values. We then pipe the 5 test digits into another **Seq.iter**, make a prediction for each test digit, and then use a third **Seq.iter** to display the 10 prediction scores.
 
-And finally, the code makes a prediction by calling **Predict** and fills a new table row with the digit label and the 10 prediction scores for each possible result. 
+This will produce a table with 5 rows of test digits, and 10 columns of prediction scores. The column with the highest score represents the prediction for that particular test digit. 
 
 That's it, you're done!
 
