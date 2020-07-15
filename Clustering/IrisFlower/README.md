@@ -33,7 +33,7 @@ Of course the app won't know the real names of the flowers, so it's just going t
 Let’s get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o IrisFlowers
+$ dotnet new console --language F# --output IrisFlowers
 $ cd IrisFlowers
 ```
 
@@ -43,103 +43,83 @@ Now install the ML.NET package:
 $ dotnet add package Microsoft.ML
 ```
 
-Now you are ready to add some classes. You’ll need one to hold a flower and one to hold your model prediction.
+Now you are ready to add some types. You’ll need one to hold a flower and one to hold your model prediction.
 
-Modify the Program.cs file like this:
+Edit the Program.fs file and replace its contents with this:
 
-```csharp
-using Microsoft.ML;
-using Microsoft.ML.Data;
-using System;
+```fsharp
+open System
+open Microsoft.ML
+open Microsoft.ML.Data
 
-namespace IrisFlower
-{
-    /// <summary>
-    /// A data transfer class that holds a single iris flower.
-    /// </summary>
-    public class IrisData
-    {
-        [LoadColumn(0)] public float SepalLength;
-        [LoadColumn(1)] public float SepalWidth;
-        [LoadColumn(2)] public float PetalLength;
-        [LoadColumn(3)] public float PetalWidth;
-        [LoadColumn(4)] public string Label;
-    }
-
-    /// <summary>
-    /// A prediction class that holds a single model prediction.
-    /// </summary>
-    public class IrisPrediction
-    {
-        [ColumnName("PredictedLabel")]
-        public uint ClusterID;
-
-        [ColumnName("Score")]
-        public float[] Score;
-    }
-
-    // the rest of the code goes here....
+/// A type that holds a single iris flower.
+[<CLIMutable>]
+type IrisData = {
+    [<LoadColumn(0)>] SepalLength : float32
+    [<LoadColumn(1)>] SepalWidth : float32
+    [<LoadColumn(2)>] PetalLength : float32
+    [<LoadColumn(3)>] PetalWidth : float32
+    [<LoadColumn(4)>] Label : string
 }
+
+/// A type that holds a single model prediction.
+[<CLIMutable>]
+type IrisPrediction = {
+    PredictedLabel : uint32
+    Score : float32[]
+}
+
+// the rest of the code goes here....
 ```
 
-The **IrisData** class holds one single flower. Note how the fields are tagged with the **LoadColumn** attribute that tells ML.NET how to load the data from the data file.
+The **IrisData** type holds one single flower. Note how the fields are tagged with the **LoadColumn** attribute that tells ML.NET how to load the data from the data file.
 
 We are loading the label in the 5th column, but we won't be using the label during training because we want the model to figure out the iris flower types on its own.
 
-There's also an **IrisPrediction** class which will hold a prediction for a single flower. The prediction consists of the ID of the cluster that the flower belongs to. Clusters are numbered from 1 upwards. And notice how the score field is an array? Each individual score value represents the distance of the flower to one specific cluster.  
+There's also an **IrisPrediction** type which will hold a prediction for a single flower. The prediction consists of the ID of the cluster that the flower belongs to. Clusters are numbered from 1 upwards. And notice how the score field is an array? Each individual score value represents the distance of the flower to one specific cluster. 
+
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
 
 Next you'll need to load the data in memory:
 
-```csharp
-/// <summary>
-/// The main program class.
-/// </summary>
-class Program
-{
-    /// <summary>
-    /// The program entry point.
-    /// </summary>
-    /// <param name="args"The command line arguments></param>
-    static void Main(string[] args)
-    {
-        var mlContext = new MLContext();
+```fsharp
+/// file paths to data files (assumes os = windows!)
+let dataPath = sprintf "%s\\iris-data.csv" Environment.CurrentDirectory
 
-        // read the iris flower data from a text file
-        var data = mlContext.Data.LoadFromTextFile<IrisData>(
-            path: "iris-data.csv", 
-            hasHeader: false, 
-            separatorChar: ',');
+[<EntryPoint>]
+let main argv = 
 
-        // split the data into a training and testing partition
-        var partitions = mlContext.Data.TrainTestSplit(data, testFraction: 0.2);
+    // get the machine learning context
+    let context = new MLContext();
+
+    // read the iris flower data from a text file
+    let data = context.Data.LoadFromTextFile<IrisData>(dataPath, hasHeader = false, separatorChar = ',')
+
+    // split the data into a training and testing partition
+    let partitions = context.Data.TrainTestSplit(data, testFraction = 0.2)
 
     // the rest of the code goes here....
-}
+
+    0 // return value
 ```
 
-This code uses the **LoadFromTextFile** method to load the CSV data directly into memory, and then calls **TrainTestSplit** to split the dataset into an 80% training partition and a 20% test partition.
+This code uses the **LoadFromTextFile** function to load the CSV data directly into memory, and then calls **TrainTestSplit** to split the dataset into an 80% training partition and a 20% test partition.
 
 Now let’s build the data science pipeline:
 
-```csharp
+```fsharp
 // set up a learning pipeline
-// step 1: concatenate features into a single column
-var pipeline = mlContext.Transforms.Concatenate(
-        "Features", 
-        "SepalLength", 
-        "SepalWidth", 
-        "PetalLength", 
-        "PetalWidth")
+let pipeline = 
+    EstimatorChain()
 
-    // step 2: use k-means clustering to find the iris types
-    .Append(mlContext.Clustering.Trainers.KMeans(
-        featureColumnName: "Features",
-        numberOfClusters: 3));
+        // step 1: concatenate features into a single column
+        .Append(context.Transforms.Concatenate("Features", "SepalLength", "SepalWidth", "PetalLength", "PetalWidth"))
 
-// train the model on the data file
-Console.WriteLine("Start training model....");
-var model = pipeline.Fit(partitions.TrainSet);
-Console.WriteLine("Model training complete!");
+        // step 2: use k-means clustering to find the iris types
+        .Append(context.Clustering.Trainers.KMeans(numberOfClusters = 3))
+
+// train the model on the training data
+let model = partitions.TrainSet |> pipeline.Fit 
 
 // the rest of the code goes here...
 ```
@@ -151,25 +131,23 @@ This pipeline has two components:
 * **Concatenate** which converts the PixelValue vector into a single column called Features. This is a required step because ML.NET can only train on a single input column.
 * A **KMeans** component which performs K-Means Clustering on the data and tries to find all Iris flower types. 
 
-With the pipeline fully assembled, the code trains the model with a call to **Fit**.
+With the pipeline fully assembled, the code trains the model by piping the training set into the **Fit** function.
 
 You now have a fully- trained model. So now it's time to take the test set, predict the type of each flower, and calculate the accuracy metrics of the model:
 
-```csharp
-// evaluate the model
-Console.WriteLine("Evaluating model:");
-var predictions = model.Transform(partitions.TestSet);
-var metrics = mlContext.Clustering.Evaluate(
-    predictions, 
-    scoreColumnName: "Score", 
-    featureColumnName: "Features");
-Console.WriteLine($"   Average distance:       {metrics.AverageDistance}");
-Console.WriteLine($"   Davies Bouldin index:     {metrics.DaviesBouldinIndex}");
+```fsharp
+// get predictions and compare to ground truth
+let metrics = partitions.TestSet |> model.Transform |> context.Clustering.Evaluate
+
+// show results
+printfn "Nodel results"
+printfn "   Average distance:     %f" metrics.AverageDistance
+printfn "   Davies Bouldin index: %f" metrics.DaviesBouldinIndex
 
 // the rest of the code goes here....
 ```
 
-This code calls **Transform** to set up predictions for every flower in the test set, and **Evaluate** to evaluate the predictions and automatically calculates two metrics:
+This code pipes the test set into the **Transform** function to set up predictions for every flower in the test set. Then it pipes these predictions into the **Evaluate** function to compare each predictions with the label and automatically calculates two metrics:
 
 * **AverageDistance**: this is the average distance of a flower to the center point of its cluster, averaged over all clusters in the dataset. It is a measure for the 'tightness' of the clusters. Lower values are better and mean more concentrated clusters. 
 * **DaviesBouldinIndex**: this metric is the average 'similarity' of each cluster with its most similar cluster. Similarity is defined as the ratio of within-cluster distances to between-cluster distances. So in other words, clusters which are farther apart and more concentrated will result in a better score. Low values indicate better clustering.
@@ -182,20 +160,29 @@ You will pick three arbitrary flowers from the test set, run them through the mo
 
 Here’s how to do it:
 
-```csharp
-// show predictions for a couple of flowers
-Console.WriteLine("Predicting 3 flowers from the test set....");
-var flowers = mlContext.Data.CreateEnumerable<IrisData>(partitions.TestSet, reuseRowObject: false).ToArray();
-var flowerPredictions = mlContext.Data.CreateEnumerable<IrisPrediction>(predictions, reuseRowObject: false).ToArray();
-foreach (var i in new int[] { 0, 10, 20 })
-{
-    Console.WriteLine($"   Flower: {flowers[i].Label}, prediction: {flowerPredictions[i].ClusterID}");
-}
+```fsharp
+    // set up a prediction engine
+    let engine = context.Model.CreatePredictionEngine model
+
+    // grab 3 flowers from the dataset
+    let flowers = context.Data.CreateEnumerable<IrisData>(partitions.TestSet, reuseRowObject = false) |> Array.ofSeq
+    let testFlowers = [ flowers.[0]; flowers.[10]; flowers.[20] ]
+
+    // show predictions for the three flowers
+    printfn "Predictions for the 3 test flowers:"
+    printfn "  Label\t\t\tPredicted\tScores"
+    testFlowers |> Seq.iter(fun f -> 
+            let p = engine.Predict f
+            printf "  %-15s\t%i\t\t" f.Label p.PredictedLabel
+            p.Score |> Seq.iter(fun s -> printf "%f\t" s)
+            printfn "")
 ```
 
-This code calls the **CreateEnumerable** method to convert the test partition into an array of **IrisData** instances, and the model predictions into an array of **IrisPrediction** instances. 
+This code calls **CreatePredictionEngine** to set up a prediction engine. This is a type that can generate individual predictions from sample data.
 
-Then the code picks three flowers for testing. For each flower it writes the label and the cluster ID (= a number between 1 and 3) to the console. 
+Then we call the **CreateEnumerable** function to convert the test partition into an array of **IrisData** instances. Note the **Array.ofSeq** function at the end which converts the enumeration to an array.
+
+Next, we pick three test flowers and pipe them into **Seq.iter**. For each flower, we generate a prediction, print the predicted label (a cluster ID between 1 and 3) and then use a second **Seq.iter** to write the three scores to the console. 
 
 That's it, you're done!
 
@@ -212,3 +199,5 @@ What do you think this says about the quality of the clusters?
 What did the 3 flower predictions look like? Does the cluster prediction match the label every time? 
 
 Now change the code and check the predictions for every flower. How often does the model get it wrong? Which Iris types are the most confusing to the model?
+
+Share your results in our group. 
