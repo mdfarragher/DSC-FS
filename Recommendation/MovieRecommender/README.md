@@ -32,7 +32,7 @@ And in fact this is exactly how the recommendation systems on Netflix and Amazon
 Let's get started. You need to build a new application from scratch by opening a terminal and creating a new NET Core console project:
 
 ```bash
-$ dotnet new console -o MovieRecommender
+$ dotnet new console --language F# --output MovieRecommender
 $ cd MovieRecommender
 ```
 
@@ -43,109 +43,106 @@ $ dotnet add package Microsoft.ML
 $ dotnet add package Microsoft.ML.Recommender
 ```
 
-Now you're ready to add some classes. You will need one class to hold a movie rating, and one to hold your model’s predictions.
+Now you're ready to add some types. You will need one type to hold a movie rating, and one to hold your model’s predictions.
 
-Edit the Program.cs file with Visual Studio Code and add the following code:
+Edit the Program.fs file with Visual Studio Code and replace its contents with the following code:
 
-```csharp
-using System;
-using System.IO;
-using System.Linq;
-using Microsoft.ML;
-using Microsoft.ML.Trainers;
-using Microsoft.ML.Data;
+```fsharp
+open System
+open Microsoft.ML
+open Microsoft.ML.Trainers
+open Microsoft.ML.Data
 
-namespace MovieRecommender
-{
-    /// <summary>
-    /// The MovieRating class holds a single movie rating.
-    /// </summary>
-    public class MovieRating
-    {
-        [LoadColumn(0)] public float UserID;
-        [LoadColumn(1)] public float MovieID;
-        [LoadColumn(2)] public float Label;
-    }
+/// The MovieRating class holds a single movie rating.
+[<CLIMutable>]
+type MovieRating = {
+    [<LoadColumn(0)>] UserID : float32
+    [<LoadColumn(1)>] MovieID : float32
+    [<LoadColumn(2)>] Label : float32
+}
 
-    /// <summary>
-    /// The MovieRatingPrediction class holds a single movie prediction.
-    /// </summary>
-    public class MovieRatingPrediction
-    {
-        public float Label;
-        public float Score;
-    }
+/// The MovieRatingPrediction class holds a single movie prediction.
+[<CLIMutable>]
+type MovieRatingPrediction = {
+    Label : float32
+    Score : float32
+}
+
+// the rest of the code goes here...
+```
+
+The **MovieRating** type holds one single movie rating. Note how each field is tagged with a **LoadColumn** attribute that tell the CSV data loading code which column to import data from.
+
+You're also declaring a **MovieRatingPrediction** type which will hold a single movie rating prediction.
+
+Note the **CLIMutable** attribute that tells F# that we want a 'C#-style' class implementation with a default constructor and setter functions for every property. Without this attribute the compiler would generate an F#-style immutable class with read-only properties and no default constructor. The ML.NET library cannot handle immutable classes.  
+
+Before we continue, we need to set up a third type that will hold our movie dictionary:
+
+```fsharp
+/// The MovieTitle class holds a single movie title.
+[<CLIMutable>]
+type MovieTitle = {
+    [<LoadColumn(0)>] MovieID : float32
+    [<LoadColumn(1)>] Title : string
+    [<LoadColumn(2)>] Genres: string
+}
+
+// the rest of the code goes here
+```
+
+This **MovieTitle** type contains a movie ID value and its corresponding title and genres. We will use this type later in our code to map movie IDs to their corresponding titles.
+
+Now you need to load the dataset in memory:
+
+```fsharp
+// file paths to data files (assumes os = windows!)
+let trainDataPath = sprintf "%s\\recommendation-ratings-train.csv" Environment.CurrentDirectory
+let testDataPath = sprintf "%s\\recommendation-ratings-test.csv" Environment.CurrentDirectory
+let titleDataPath = sprintf "%s\\recommendation-movies.csv" Environment.CurrentDirectory
+
+[<EntryPoint>]
+let main argv = 
+
+    // set up a new machine learning context
+    let context = new MLContext()
+
+    // load training and test data
+    let trainData = context.Data.LoadFromTextFile<MovieRating>(trainDataPath, hasHeader = true, separatorChar = ',')
+    let testData = context.Data.LoadFromTextFile<MovieRating>(testDataPath, hasHeader = true, separatorChar = ',')
 
     // the rest of the code goes here...
-}
+
+    0 // return value
 ```
 
-The **MovieRating** class holds one single movie rating. Note how each field is tagged with a **LoadColumn** attribute that tell the CSV data loading code which column to import data from.
-
-You're also declaring a **MovieRatingPrediction** class which will hold a single movie rating prediction.
-
-Now you need to load the training data in memory:
-
-```csharp
-    /// <summary>
-    /// The main program class.
-    /// </summary>
-    class Program
-    {
-        // filenames for training and test data
-        private static string trainingDataPath = Path.Combine(Environment.CurrentDirectory, "recommendation-ratings-train.csv");
-        private static string testDataPath = Path.Combine(Environment.CurrentDirectory, "recommendation-ratings-test.csv");
-
-        /// <summary>
-        /// The program entry point.
-        /// </summary>
-        /// <param name="args">The command line arguments</param>
-        static void Main(string[] args)
-        {
-            // set up a new machine learning context
-            var context = new MLContext();
-
-            // load training and test data
-            var trainingDataView = context.Data.LoadFromTextFile<MovieRating>(trainingDataPath, hasHeader: true, separatorChar: ',');
-            var testDataView = context.Data.LoadFromTextFile<MovieRating>(testDataPath, hasHeader: true, separatorChar: ',');
-
-            // the rest of the code goes here...
-        }
-    }
-}
-```
-
-This code uses the method **LoadFromTextFile** to load the CSV data directly into memory. The class field annotations tell the method how to store the loaded data in the **MovieRating** class.
+This code calls the **LoadFromTextFile** function twice to load the training and testing CSV data into memory. The field annotations we set up earlier tell the function how to store the loaded data in the **MovieRating** class.
 
 Now you're ready to start building the machine learning model:
 
-```csharp
+```fsharp
 // prepare matrix factorization options
-var options = new MatrixFactorizationTrainer.Options
-{
-    MatrixColumnIndexColumnName = "UserIDEncoded",
-    MatrixRowIndexColumnName = "MovieIDEncoded", 
-    LabelColumnName = "Label",
-    NumberOfIterations = 20,
-    ApproximationRank = 100
-};
+let options = 
+    MatrixFactorizationTrainer.Options(
+        MatrixColumnIndexColumnName = "UserIDEncoded",
+        MatrixRowIndexColumnName = "MovieIDEncoded",
+        LabelColumnName = "Label",
+        NumberOfIterations = 20,
+        ApproximationRank = 100)
 
 // set up a training pipeline
-// step 1: map UserID and MovieID to keys
-var pipeline = context.Transforms.Conversion.MapValueToKey(
-        inputColumnName: "UserID",
-        outputColumnName: "UserIDEncoded")
-    .Append(context.Transforms.Conversion.MapValueToKey(
-        inputColumnName: "MovieID",
-        outputColumnName: "MovieIDEncoded")
+let pipeline = 
+    EstimatorChain()
 
-    // step 2: find recommendations using matrix factorization
-    .Append(context.Recommendation().Trainers.MatrixFactorization(options)));
+        // step 1: map userId and movieId to keys
+        .Append(context.Transforms.Conversion.MapValueToKey("UserIDEncoded", "UserID"))
+        .Append(context.Transforms.Conversion.MapValueToKey("MovieIDEncoded", "MovieID"))
+
+        // step 2: find recommendations using matrix factorization
+        .Append(context.Recommendation().Trainers.MatrixFactorization(options))
 
 // train the model
-Console.WriteLine("Training the model...");
-var model = pipeline.Fit(trainingDataView);  
-Console.WriteLine();
+let model = trainData |> pipeline.Fit
 
 // the rest of the code goes here...
 ```
@@ -158,26 +155,26 @@ This pipeline has the following components:
 * Another **MapValueToKey** which reads the MovieID column, encodes it, and stores the encodings in output column called MovieIDEncoded.
 * A **MatrixFactorization** component that performs matrix factorization on the encoded ID columns and the ratings. This step calculates the movie rating predictions for every user and movie.
 
-With the pipeline fully assembled, you train the model with a call to **Fit**.
+With the pipeline fully assembled, you train the model by piping the training data into the **Fit** function.
 
 You now have a fully- trained model. So now you need to load the validation data, predict the rating for each user and movie, and calculate the accuracy metrics of the model:
 
-```csharp
-// evaluate the model performance 
-Console.WriteLine("Evaluating the model...");
-var predictions = model.Transform(testDataView);
-var metrics = context.Regression.Evaluate(predictions, labelColumnName: "Label", scoreColumnName: "Score");
-Console.WriteLine($"  RMSE: {metrics.RootMeanSquaredError:#.##}");
-Console.WriteLine($"  MAE:  {metrics.MeanAbsoluteError:#.##}");
-Console.WriteLine($"  MSE:  {metrics.MeanSquaredError:#.##}");
-Console.WriteLine();
+```fsharp
+// calculate predictions and compare them to the ground truth
+let metrics = testData |> model.Transform |> context.Regression.Evaluate
+
+// show model metrics
+printfn "Model metrics:"
+printfn "  RMSE: %f" metrics.RootMeanSquaredError
+printfn "  MAE:  %f" metrics.MeanAbsoluteError
+printfn "  MSE:  %f" metrics.MeanSquaredError
 
 // the rest of the code goes here...
 ```
 
-This code uses the **Transform** method to make predictions for every user and movie in the test dataset.
+This code pipes the test data into the **Transform** function to make predictions for every user and movie in the test dataset. It then pipes these predictions into the **Evaluate** function to compare them to the actual ratings.
 
-The **Evaluate** method compares these predictions to the actual area values and automatically calculates three metrics for me:
+The **Evaluate** function calculates the following three metrics:
 
 * **RootMeanSquaredError**: this is the root mean square error or RMSE value. It’s the go-to metric in the field of machine learning to evaluate models and rate their accuracy. RMSE represents the length of a vector in n-dimensional space, made up of the error in each individual prediction.
 * **MeanAbsoluteError**: this is the mean absolute prediction error, expressed as a rating.
@@ -207,48 +204,56 @@ So based on this list, do you think I would enjoy the James Bond movie ‘Golden
 
 Let's write some code to find out:
 
-```csharp
-// check if Mark likes GoldenEye
-Console.WriteLine("Calculating the score for Mark liking the movie 'GoldenEye'...");
-var predictionEngine = context.Model.CreatePredictionEngine<MovieRating, MovieRatingPrediction>(model);
-var prediction = predictionEngine.Predict(
-    new MovieRating()
-    {
-        UserID = 999,
-        MovieID = 10  // GoldenEye
-    }
-);
-Console.WriteLine($"  Score: {prediction.Score}");
-Console.WriteLine();
+```fsharp
+// set up a prediction engine
+let engine = context.Model.CreatePredictionEngine model
+
+// check if Mark likes 'GoldenEye'
+printfn "Does Mark like GoldenEye?"
+let p = engine.Predict { UserID = 999.0f; MovieID = 10.0f; Label = 0.0f }
+printfn "  Score: %f" p.Score
 
 // the rest of the code goes here...
 ```
 
-This code uses the **CreatePredictionEngine** method to set up a prediction engine. The two type arguments are the input data class and the class to hold the prediction. And once the prediction engine is set up, you can simply call **Predict** to make a single prediction on a MovieRating instance.
+This code uses the **CreatePredictionEngine** method to set up a prediction engine, and then calls **Predict** to create a prediction for user 999 (me) and movie 10 (GoldenEye). 
 
 Let’s do one more thing and ask the model to predict my top-5 favorite movies. 
 
-First add the helper class [Movies.cs](https://github.com/mdfarragher/Courses/blob/master/DSC/Recommendation/MovieRecommender/Movies.cs) to your project. Then add the following code:
+We can ask the model to predict my favorite movies, but it will just produce movie ID values. So now's the time to load that movie dictionary that will help us convert movie IDs to their corresponding titles:
 
-```csharp
-// find Mark's top 5 movies
-Console.WriteLine("Calculating Mark's top 5 movies...");
-var top5 =  (from m in Movies.All
-                let p = predictionEngine.Predict(
-                new MovieRating()
-                {
-                    UserID = 999,
-                    MovieID = m.ID
-                })
-                orderby p.Score descending
-                select (MovieId: m.ID, Score: p.Score)).Take(5);
-foreach (var t in top5)
-    Console.WriteLine($"  Score:{t.Score}\tMovie: {Movies.Get(t.MovieId)?.Title}");
+```fsharp
+// load all movie titles
+let movieData = context.Data.LoadFromTextFile<MovieTitle>(titleDataPath, hasHeader = true, separatorChar = ',', allowQuoting = true)
+let movies = context.Data.CreateEnumerable(movieData, reuseRowObject = false)
+
+// the rest of the code goes here...
 ```
 
-This code uses the helper class **Movies** to enumerate every movie ID. It predicts my rating every possible movie, sorts them by score in descending order, and takes the top 5 results.
+This code calls **LoadFromTextFile** to load the movie dictionary in memory, and then calls **CreateEnumerable** to create an enumeration of **MovieTitle** instances. 
 
-So how accurate is this model? Time to find out. Go to your terminal and run your code:
+We can now find my favorite movies like this:
+
+```fsharp
+// find Mark's top 5 movies
+let marksMovies = 
+    movies |> Seq.map(fun m ->
+        let p2 = engine.Predict { UserID = 999.0f; MovieID = m.MovieID; Label = 0.0f }
+        (m.Title, p2.Score))
+    |> Seq.sortByDescending(fun t -> snd t)
+
+// print the results
+printfn "What are Mark's top-5 movies?"
+marksMovies |> Seq.take(5) |> Seq.iter(fun t -> printfn "  %f %s" (snd t) (fst t))
+```
+
+The code pipes the movie dictionary into **Seq.map** to create an enumeration of tuples. The first tuple element is the movie title and the second element is the rating the model thinks I would give to that movie.
+
+The code then pipes the enumeration of tuples into Seq.**sortByDescending** to sort the list by rating. This will put my favorite movies at the top of the list.
+
+Finally, the code pipes the rated movie list into **Seq.take** to grab the top-5, and then prints out the title and correspnding rating. 
+
+That's it, your code is done. Go to your terminal and run the app:
 
 ```bash
 $ dotnet run
