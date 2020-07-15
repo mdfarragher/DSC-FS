@@ -249,7 +249,7 @@ marksMovies |> Seq.take(5) |> Seq.iter(fun t -> printfn "  %f %s" (snd t) (fst t
 
 The code pipes the movie dictionary into **Seq.map** to create an enumeration of tuples. The first tuple element is the movie title and the second element is the rating the model thinks I would give to that movie.
 
-The code then pipes the enumeration of tuples into Seq.**sortByDescending** to sort the list by rating. This will put my favorite movies at the top of the list.
+The code then pipes the enumeration of tuples into **Seq.sortByDescending** to sort the list by rating. This will put my favorite movies at the top of the list.
 
 Finally, the code pipes the rated movie list into **Seq.take** to grab the top-5, and then prints out the title and correspnding rating. 
 
