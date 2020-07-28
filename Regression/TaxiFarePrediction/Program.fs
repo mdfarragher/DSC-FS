@@ -20,7 +20,7 @@ type TaxiTripFarePrediction = {
 }
 
 // file paths to data files (assumes os = windows!)
-let dataPath = sprintf "%s\\yellow_tripdata_2018-12_small.csv" Environment.CurrentDirectory
+let dataPath = sprintf "%s\\yellow_tripdata_2018-12.csv" Environment.CurrentDirectory
 
 /// The main application entry point.
 [<EntryPoint>]
