@@ -18,3 +18,4 @@ Recommendation/MovieRecommender/bin/
 Recommendation/MovieRecommender/obj/
 LoadingData/CaliforniaHousing/bin/
 LoadingData/CaliforniaHousing/obj/
+Regression/TaxiFarePrediction/yellow_tripdata_2018-12.csv
